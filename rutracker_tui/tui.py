@@ -9,6 +9,7 @@ import httpx
 from prompt_toolkit.application import Application
 from prompt_toolkit.application.current import get_app
 from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import HSplit, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
@@ -35,6 +36,13 @@ class RutrackerApp:
         self.min_seeders: int | None = None
         self.max_size_text = ""
         self.logs: list[str] = []
+        self.stats = {
+            "forums": 0,
+            "topics": 0,
+            "crawled_topics": 0,
+            "magnets": 0,
+            "files": 0,
+        }
         self.syncing = False
         self.search_field = TextArea(
             height=1,
@@ -49,8 +57,7 @@ class RutrackerApp:
         self.storage = Storage(self.db_path)
         try:
             self.refresh_results()
-            self.app = self._build_application()
-            self.app.run()
+            self._build_application().run()
         finally:
             if self.storage:
                 self.storage.close()
@@ -67,7 +74,7 @@ class RutrackerApp:
             limit=MAX_ROWS,
         )
         self.selected_index = min(self.selected_index, max(0, len(self.rows) - 1))
-        self._write_stats()
+        self._update_stats()
         self._invalidate()
 
     def move_selection(self, delta: int) -> None:
@@ -110,7 +117,7 @@ class RutrackerApp:
             self.logs = self.logs[-8:]
             self._invalidate()
 
-    def _build_application(self, output: Any | None = None) -> Application[None]:
+    def _build_application(self, output: Any | None = None, input: Any | None = None) -> Application[None]:
         body = VSplit(
             [
                 Window(self.table_control, wrap_lines=False),
@@ -130,56 +137,69 @@ class RutrackerApp:
             ]
         )
         layout = Layout(root, focused_element=self.table_control)
-        return Application(layout=layout, key_bindings=self._key_bindings(), full_screen=True, output=output)
+        self.app = Application(
+            layout=layout,
+            key_bindings=self._key_bindings(),
+            full_screen=True,
+            output=output,
+            input=input,
+        )
+        return self.app
 
     def _key_bindings(self) -> KeyBindings:
         bindings = KeyBindings()
+        table_mode = Condition(self._table_hotkeys_enabled)
+        search_mode = Condition(self._search_has_focus)
 
-        @bindings.add("q")
+        @bindings.add("c-c")
         def _(event: Any) -> None:
             event.app.exit()
 
-        @bindings.add("up")
+        @bindings.add("q", filter=table_mode)
+        def _(event: Any) -> None:
+            event.app.exit()
+
+        @bindings.add("up", filter=table_mode)
         def _(event: Any) -> None:
             self.move_selection(-1)
 
-        @bindings.add("down")
+        @bindings.add("down", filter=table_mode)
         def _(event: Any) -> None:
             self.move_selection(1)
 
-        @bindings.add("pageup")
+        @bindings.add("pageup", filter=table_mode)
         def _(event: Any) -> None:
             self.move_selection(-10)
 
-        @bindings.add("pagedown")
+        @bindings.add("pagedown", filter=table_mode)
         def _(event: Any) -> None:
             self.move_selection(10)
 
-        @bindings.add("/")
+        @bindings.add("/", filter=table_mode)
         def _(event: Any) -> None:
             event.app.layout.focus(self.search_field)
 
-        @bindings.add("escape")
+        @bindings.add("escape", filter=search_mode)
         def _(event: Any) -> None:
             event.app.layout.focus(self.table_control)
 
-        @bindings.add("r")
+        @bindings.add("r", filter=table_mode)
         def _(event: Any) -> None:
             self.refresh_results()
 
-        @bindings.add("m")
+        @bindings.add("m", filter=table_mode)
         def _(event: Any) -> None:
             self.toggle_magnet()
 
-        @bindings.add("f")
+        @bindings.add("f", filter=table_mode)
         def _(event: Any) -> None:
             self.toggle_seed_filter()
 
-        @bindings.add("c")
+        @bindings.add("c", filter=table_mode)
         def _(event: Any) -> None:
             self.clear_filters()
 
-        @bindings.add("s")
+        @bindings.add("s", filter=table_mode)
         def _(event: Any) -> None:
             if not self.syncing:
                 event.app.create_background_task(self._sync())
@@ -224,6 +244,17 @@ class RutrackerApp:
             self.syncing = False
             self.refresh_results()
 
+    def _search_has_focus(self) -> bool:
+        if self.app is None:
+            return False
+        try:
+            return self.app.layout.has_focus(self.search_field)
+        except Exception:
+            return False
+
+    def _table_hotkeys_enabled(self) -> bool:
+        return not self._search_has_focus()
+
     def _header_text(self) -> HTML:
         status = "syncing" if self.syncing else "ready"
         filters = []
@@ -234,10 +265,7 @@ class RutrackerApp:
         if self.min_seeders is not None:
             filters.append(f"seeds>={self.min_seeders}")
         filter_text = " | ".join(filters) if filters else "no filters"
-        return HTML(
-            f"<b>RuTracker</b>  {status}\n"
-            f"{len(self.rows)} rows | {filter_text}"
-        )
+        return HTML(f"<b>RuTracker</b>  {status}  |  rows {len(self.rows)}  |  topics {self.stats['topics']}\n{filter_text}")
 
     def _table_text(self) -> list[tuple[str, str]]:
         fragments: list[tuple[str, str]] = [
@@ -280,21 +308,19 @@ class RutrackerApp:
         return "\n".join(self.logs[-8:])
 
     def _footer_text(self) -> str:
-        return "q выход  / поиск  esc назад  s синхр  r обновить  m magnet  f сиды  c сброс"
+        if self._search_has_focus():
+            return "enter применить  esc назад"
+        return "q выход  / поиск  s синхр  r обновить  m magnet  f сиды  c сброс"
 
     def _selected_row(self) -> Any | None:
         if not self.rows:
             return None
         return self.rows[self.selected_index]
 
-    def _write_stats(self) -> None:
+    def _update_stats(self) -> None:
         if not self.storage:
             return
-        stats = self.storage.stats()
-        self.log(
-            f"forums {stats['forums']} | topics {stats['topics']} | "
-            f"crawled {stats['crawled_topics']} | magnets {stats['magnets']} | files {stats['files']}"
-        )
+        self.stats = self.storage.stats()
 
     def _invalidate(self) -> None:
         if self.app is None:
