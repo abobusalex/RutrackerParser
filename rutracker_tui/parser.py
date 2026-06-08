@@ -251,11 +251,46 @@ def _magnet(soup: BeautifulSoup) -> str | None:
 
 
 def _first_image(node: Tag | BeautifulSoup, base_url: str) -> str | None:
+    best_score = -1
+    best_url: str | None = None
     for image in node.select("img"):
         src = image.get("src") or image.get("data-src")
-        if src and not src.startswith("data:"):
-            return absolute_url(src, base_url)
-    return None
+        if not src or src.startswith("data:"):
+            continue
+        score = _image_score(image, src)
+        if score > best_score:
+            best_score = score
+            best_url = absolute_url(src, base_url)
+    return best_url
+
+
+def _image_score(image: Tag, src: str) -> int:
+    text = " ".join(
+        str(image.get(name, ""))
+        for name in ("class", "title", "alt", "src", "data-src")
+    ).lower()
+    width = _image_dimension(image.get("width"))
+    height = _image_dimension(image.get("height"))
+    area = width * height
+    score = area
+    if width >= 120:
+        score += 20_000
+    if height >= 120:
+        score += 20_000
+    if any(token in text for token in ("poster", "cover", "облож", "screen", "thumb", "image")):
+        score += 12_000
+    if any(token in text for token in ("icon", "arrow", "logo", "rank", "smile", "avatar", "button", "btn")):
+        score -= 40_000
+    if re.search(r"/(i|images?|pic|poster|covers?)/", src.lower()):
+        score += 8_000
+    return score
+
+
+def _image_dimension(value: object) -> int:
+    if value is None:
+        return 0
+    match = INT_RE.search(str(value))
+    return int(match.group()) if match else 0
 
 
 def _files(soup: BeautifulSoup) -> list[TopicFile]:

@@ -63,6 +63,20 @@ class ParserTest(unittest.TestCase):
         self.assertEqual(details.seeders, 15)
         self.assertTrue(details.is_sticky)
 
+    def test_parse_topic_details_prefers_cover_over_small_icon(self):
+        html = """
+        <html>
+          <h1>Film</h1>
+          <td class="message">
+            <img src="/icons/arrow.png" width="16" height="16" alt="arrow">
+            <img src="/posters/cover.jpg" width="240" height="360" alt="cover">
+          </td>
+          <a href="magnet:?xt=urn:btih:abc">magnet</a>
+        </html>
+        """
+        details = parse_topic_details(html, "https://rutracker.org/forum/viewtopic.php?t=99")
+        self.assertEqual(details.first_image_url, "https://rutracker.org/posters/cover.jpg")
+
 
 if __name__ == "__main__":
     unittest.main()

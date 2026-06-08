@@ -480,6 +480,8 @@ class RutrackerApp:
         description = description_raw if full else _truncate(description_raw.replace("\n", " "), 420)
         date = _clean_date(row["registered_at"])
         ascii_art = (row["first_image_ascii"] or "").strip()
+        if ascii_art and not full:
+            ascii_art = "\n".join(ascii_art.splitlines()[:10])
         parts = [
             str(row["title"]),
             f"magnet: {row['magnet'] or '-'}",
