@@ -159,6 +159,7 @@ def parse_forum_topics(html: str, forum_id: int | None, base_url: str = BASE_URL
             leechers=leechers,
             downloads=downloads,
             registered_at=extract_date_hint(row_text),
+            is_sticky=_is_sticky(row),
         )
     return list(topics.values())
 
@@ -173,7 +174,13 @@ def parse_pagination_urls(html: str, base_url: str = BASE_URL) -> list[str]:
     return sorted(urls)
 
 
-def parse_topic_details(html: str, url: str, forum_id: int | None = None, base_url: str = BASE_URL) -> TopicDetails:
+def parse_topic_details(
+    html: str,
+    url: str,
+    forum_id: int | None = None,
+    base_url: str = BASE_URL,
+    is_sticky: bool = False,
+) -> TopicDetails:
     soup = BeautifulSoup(html, "html.parser")
     topic_id = query_int(url, "t")
     if topic_id is None:
@@ -203,6 +210,7 @@ def parse_topic_details(html: str, url: str, forum_id: int | None = None, base_u
         downloads=_class_int(soup, ("compl", "complete", "dl")),
         first_image_url=first_image,
         files=files,
+        is_sticky=is_sticky,
     )
 
 
@@ -289,6 +297,20 @@ def _class_int(node: Tag | BeautifulSoup | None, class_hints: tuple[str, ...]) -
             if value is not None:
                 return value
     return None
+
+
+def _is_sticky(row: Tag | None) -> bool:
+    if row is None:
+        return False
+    class_text = " ".join(row.get("class", [])).lower()
+    attr_text = " ".join(
+        str(tag.get(name, ""))
+        for tag in row.find_all(True)
+        for name in ("class", "title", "alt", "src")
+    ).lower()
+    row_text = text_of(row).lower()
+    sticky_hints = ("sticky", "announce", "important", "закреп", "прикреп", "важно")
+    return any(hint in class_text or hint in attr_text or hint in row_text for hint in sticky_hints)
 
 
 def guess_category(text: str) -> str:

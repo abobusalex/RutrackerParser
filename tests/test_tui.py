@@ -95,14 +95,46 @@ class TuiStateTest(unittest.TestCase):
             finally:
                 app.storage.close()
 
-    def test_details_show_link_and_hide_bad_date(self):
+    def test_details_show_magnet_second_line_ascii_and_link(self):
         with TemporaryDirectory() as temp_dir:
             app = _app_with_topics(Path(temp_dir) / "test.sqlite3")
             try:
                 app.refresh_results()
                 text = app._details_text()
+                lines = text.splitlines()
+                self.assertEqual(lines[0], "Ubuntu ISO")
+                self.assertEqual(lines[1], "magnet: magnet:?xt=urn:btih:test0")
                 self.assertIn("link: https://example.test/t=1000", text)
+                self.assertIn("ascii:", text)
+                self.assertIn("@@", text)
                 self.assertNotIn("id:", text)
+            finally:
+                app.storage.close()
+
+    def test_footer_has_section_page_and_position(self):
+        with TemporaryDirectory() as temp_dir:
+            app = _app_with_topics(Path(temp_dir) / "test.sqlite3")
+            try:
+                app.refresh_results()
+                footer = app._footer_text()
+                self.assertIn("раздел 1/", footer)
+                self.assertIn("стр 1/", footer)
+                self.assertIn("pos 1/", footer)
+            finally:
+                app.storage.close()
+
+    def test_fullscreen_details_scrolls_and_uses_full_text(self):
+        with TemporaryDirectory() as temp_dir:
+            app = _app_with_topics(Path(temp_dir) / "test.sqlite3")
+            try:
+                app.refresh_results()
+                app.open_fullscreen()
+                self.assertTrue(app.fullscreen)
+                self.assertIn("magnet: magnet:?xt=urn:btih:test0", app._full_details_text())
+                app.scroll_details(1)
+                self.assertEqual(app.detail_scroll, 1)
+                app.close_fullscreen()
+                self.assertFalse(app.fullscreen)
             finally:
                 app.storage.close()
 
@@ -137,8 +169,10 @@ def _app_with_topics(db_path: Path, count: int = 2) -> RutrackerApp:
                 forum_id=1,
                 title="Ubuntu ISO" if index == 0 else f"Debian ISO {index}",
                 url=f"https://example.test/t={1000 + index}",
-                magnet="magnet:?xt=urn:btih:test" if index == 0 else None,
+                magnet=f"magnet:?xt=urn:btih:test{index}",
                 seeders=10 - index if index < 10 else 0,
+                description="Описание релиза\n" * 4,
+                first_image_ascii="@@" if index == 0 else None,
             )
         )
     app = RutrackerApp(db_path=db_path, base_url="https://example.test/forum/")

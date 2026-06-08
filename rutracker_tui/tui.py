@@ -13,7 +13,7 @@ from prompt_toolkit.application.current import get_app
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import HSplit, Layout, VSplit, Window
+from prompt_toolkit.layout import ConditionalContainer, HSplit, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import TextArea
 
@@ -61,6 +61,8 @@ class RutrackerApp:
         self.sync_branch = ""
         self.sync_state = ""
         self.sync_started_at: float | None = None
+        self.fullscreen = False
+        self.detail_scroll = 0
         self.search_field = TextArea(
             height=1,
             prompt="search> ",
@@ -69,6 +71,8 @@ class RutrackerApp:
         )
         self.category_control = FormattedTextControl(self._categories_text, focusable=True)
         self.topic_control = FormattedTextControl(self._topics_text, focusable=True)
+        self.detail_control = FormattedTextControl(self._details_text, focusable=True)
+        self.fullscreen_control = FormattedTextControl(self._full_details_text, focusable=True)
         self.app: Application[None] | None = None
 
     @property
@@ -102,6 +106,7 @@ class RutrackerApp:
         self.rows = self.storage.search_topics(
             query=self.query,
             category=self.selected_category,
+            magnet_only=True,
             sort_code=self.sort_code,
             sort_desc=self.sort_desc,
             limit=MAX_ROWS,
@@ -128,6 +133,7 @@ class RutrackerApp:
             self.selected_index = 0
             return
         self.selected_index = max(0, min(len(self.rows) - 1, self.selected_index + delta))
+        self.detail_scroll = 0
         self._invalidate()
 
     def switch_pane(self, pane: str) -> None:
@@ -156,6 +162,27 @@ class RutrackerApp:
         self.log("reset")
         self.refresh_results(reset_selection=True)
 
+    def open_fullscreen(self) -> None:
+        if self._selected_row() is None:
+            return
+        self.fullscreen = True
+        self.detail_scroll = 0
+        if self.app:
+            self.app.layout.focus(self.fullscreen_control)
+        self._invalidate()
+
+    def close_fullscreen(self) -> None:
+        self.fullscreen = False
+        self.detail_scroll = 0
+        if self.app:
+            self.app.layout.focus(self.topic_control)
+        self._invalidate()
+
+    def scroll_details(self, delta: int) -> None:
+        lines = self._selected_details_text(full=True).splitlines()
+        self.detail_scroll = max(0, min(max(0, len(lines) - 1), self.detail_scroll + delta))
+        self._invalidate()
+
     def log(self, message: str) -> None:
         self._apply_progress(message)
         clean_message = _clean_log(message)
@@ -165,13 +192,25 @@ class RutrackerApp:
             self._invalidate()
 
     def _build_application(self, output: Any | None = None, input: Any | None = None) -> Application[None]:
-        body = VSplit(
+        normal_body = VSplit(
             [
                 Window(self.category_control, width=30, wrap_lines=False),
                 Window(width=1, char="│"),
                 Window(self.topic_control, wrap_lines=False),
                 Window(width=1, char="│"),
-                Window(FormattedTextControl(self._details_text), wrap_lines=True, width=52),
+                Window(self.detail_control, wrap_lines=True, width=56),
+            ]
+        )
+        body = HSplit(
+            [
+                ConditionalContainer(
+                    normal_body,
+                    filter=Condition(lambda: not self.fullscreen),
+                ),
+                ConditionalContainer(
+                    Window(self.fullscreen_control, wrap_lines=False),
+                    filter=Condition(lambda: self.fullscreen),
+                ),
             ]
         )
         root = HSplit(
@@ -197,7 +236,8 @@ class RutrackerApp:
 
     def _key_bindings(self) -> KeyBindings:
         bindings = KeyBindings()
-        normal_mode = Condition(self._normal_hotkeys_enabled)
+        normal_mode = Condition(lambda: self._normal_hotkeys_enabled() and not self.fullscreen)
+        fullscreen_mode = Condition(lambda: self._normal_hotkeys_enabled() and self.fullscreen)
         search_mode = Condition(self._search_has_focus)
 
         @bindings.add("c-c")
@@ -205,6 +245,10 @@ class RutrackerApp:
             event.app.exit()
 
         @bindings.add("q", filter=normal_mode)
+        def _(event: Any) -> None:
+            event.app.exit()
+
+        @bindings.add("q", filter=fullscreen_mode)
         def _(event: Any) -> None:
             event.app.exit()
 
@@ -224,6 +268,22 @@ class RutrackerApp:
         def _(event: Any) -> None:
             self.move_selection(PAGE_SIZE)
 
+        @bindings.add("up", filter=fullscreen_mode)
+        def _(event: Any) -> None:
+            self.scroll_details(-1)
+
+        @bindings.add("down", filter=fullscreen_mode)
+        def _(event: Any) -> None:
+            self.scroll_details(1)
+
+        @bindings.add("pageup", filter=fullscreen_mode)
+        def _(event: Any) -> None:
+            self.scroll_details(-PAGE_SIZE)
+
+        @bindings.add("pagedown", filter=fullscreen_mode)
+        def _(event: Any) -> None:
+            self.scroll_details(PAGE_SIZE)
+
         @bindings.add("left", filter=normal_mode)
         def _(event: Any) -> None:
             self.switch_pane("categories")
@@ -236,6 +296,20 @@ class RutrackerApp:
         def _(event: Any) -> None:
             if self.active_pane == "categories":
                 self.switch_pane("topics")
+            else:
+                self.open_fullscreen()
+
+        @bindings.add("enter", filter=fullscreen_mode)
+        def _(event: Any) -> None:
+            self.close_fullscreen()
+
+        @bindings.add("v", filter=normal_mode)
+        def _(event: Any) -> None:
+            self.open_fullscreen()
+
+        @bindings.add("v", filter=fullscreen_mode)
+        def _(event: Any) -> None:
+            self.close_fullscreen()
 
         @bindings.add("/", filter=normal_mode)
         def _(event: Any) -> None:
@@ -244,6 +318,10 @@ class RutrackerApp:
         @bindings.add("escape", filter=search_mode)
         def _(event: Any) -> None:
             self.switch_pane("topics")
+
+        @bindings.add("escape", filter=fullscreen_mode)
+        def _(event: Any) -> None:
+            self.close_fullscreen()
 
         @bindings.add("r", filter=normal_mode)
         def _(event: Any) -> None:
@@ -354,55 +432,74 @@ class RutrackerApp:
         )
 
     def _categories_text(self) -> list[tuple[str, str]]:
-        fragments: list[tuple[str, str]] = [("class:header", "Категории\n")]
+        fragments: list[tuple[str, str]] = [("class:header", "№  Категория              ∑\n")]
         for index, item in enumerate(self.categories):
             marker = ">" if index == self.category_index else " "
-            title = _truncate(item["category"], 20)
+            title = _truncate(item["category"], 19)
             count = item.get("topics", 0)
-            line = f"{marker} {title:<20} {count:>6}\n"
+            line = f"{marker}{index + 1:02d} {title:<19} {count:>6}\n"
             style = "reverse" if self.active_pane == "categories" and index == self.category_index else ""
             fragments.append((style, line))
         return fragments
 
     def _topics_text(self) -> list[tuple[str, str]]:
-        fragments: list[tuple[str, str]] = [("class:header", "M  Seeds  Size       Title\n")]
+        fragments: list[tuple[str, str]] = [("class:header", "! Seeds  Size       Title\n")]
         if not self.rows:
-            fragments.append(("", "Нет данных. Нажми s для синхронизации.\n"))
+            fragments.append(("", "Нет magnet-раздач. Нажми s для синхронизации.\n"))
             return fragments
         start = (self.current_page - 1) * PAGE_SIZE
         end = min(start + PAGE_SIZE, len(self.rows))
         for index in range(start, end):
             row = self.rows[index]
             marker = ">" if index == self.selected_index else " "
-            magnet = "M" if row["magnet"] else "."
+            sticky = "!" if row["is_sticky"] else " "
             title = _truncate(row["title"], 72)
             size = _truncate(row["size_text"] or "-", 10)
-            line = f"{marker}{magnet:<2} {row['seeders'] or 0:<6} {size:<10} {title}\n"
+            line = f"{marker}{sticky:<2} {row['seeders'] or 0:<6} {size:<10} {title}\n"
             style = "reverse" if self.active_pane == "topics" and index == self.selected_index else ""
             fragments.append((style, line))
         return fragments
 
     def _details_text(self) -> str:
+        return self._selected_details_text(full=False)
+
+    def _full_details_text(self) -> str:
+        lines = self._selected_details_text(full=True).splitlines()
+        if not lines:
+            return ""
+        return "\n".join(lines[self.detail_scroll :])
+
+    def _selected_details_text(self, full: bool) -> str:
         row = self._selected_row()
         if row is None:
-            return "Нет данных.\n\ns синхронизация\n/ поиск\nq выход"
+            return "Нет magnet-раздач.\n\ns синхронизация\n/ поиск\nq выход"
         files = self.storage.topic_files(row["id"]) if self.storage else []
-        file_preview = "\n".join(f"- {item.path} ({item.size_text or '-'})" for item in files[:8])
-        description = _truncate((row["description"] or "").replace("\n", " "), 420)
+        file_limit = len(files) if full else 8
+        file_preview = "\n".join(f"- {item.path} ({item.size_text or '-'})" for item in files[:file_limit])
+        description_raw = (row["description"] or "").strip()
+        description = description_raw if full else _truncate(description_raw.replace("\n", " "), 420)
         date = _clean_date(row["registered_at"])
-        return (
-            f"{row['title']}\n\n"
-            f"link: {row['url']}\n"
-            f"forum: {row['forum_title'] or '-'}\n"
-            f"category: {row['forum_category'] or '-'}\n"
-            f"seeds: {row['seeders'] or 0}  leech: {row['leechers'] or 0}\n"
-            f"downloads: {row['downloads'] or 0}\n"
-            f"size: {row['size_text'] or '-'}\n"
-            f"date: {date or '-'}\n"
-            f"magnet: {'yes' if row['magnet'] else 'no'}\n\n"
-            f"files:\n{file_preview or '-'}\n\n"
-            f"{description}"
-        )
+        ascii_art = (row["first_image_ascii"] or "").strip()
+        parts = [
+            str(row["title"]),
+            f"magnet: {row['magnet'] or '-'}",
+            "",
+            f"link: {row['url']}",
+            f"forum: {row['forum_title'] or '-'}",
+            f"category: {row['forum_category'] or '-'}",
+            f"seeds: {row['seeders'] or 0}  leech: {row['leechers'] or 0}",
+            f"downloads: {row['downloads'] or 0}",
+            f"size: {row['size_text'] or '-'}",
+            f"date: {date or '-'}",
+            f"pinned: {'yes' if row['is_sticky'] else 'no'}",
+            "",
+        ]
+        if ascii_art:
+            parts.extend(["ascii:", ascii_art, ""])
+        parts.extend(["files:", file_preview or "-", ""])
+        if description:
+            parts.append(description)
+        return "\n".join(parts)
 
     def _log_text(self) -> str:
         return "\n".join(self.logs[-6:])
@@ -410,7 +507,12 @@ class RutrackerApp:
     def _footer_text(self) -> str:
         if self._search_has_focus():
             return "enter применить  esc назад"
-        return "←/→ панель  ↑/↓ выбрать  pgup/pgdn страница  / поиск  s sync  o сорт  d порядок  c сброс  q выход"
+        section = f"раздел {self.category_index + 1}/{len(self.categories)}"
+        page = f"стр {self.current_page}/{self.total_pages}"
+        pos = f"{self.selected_index + 1 if self.rows else 0}/{len(self.rows)}"
+        if self.fullscreen:
+            return f"{section}  {page}  pos {pos}  ↑/↓ scroll  pgup/pgdn  enter/esc назад  q выход"
+        return f"{section}  {page}  pos {pos}  ←/→ панель  ↑/↓ выбрать  enter открыть  / поиск  s sync  o сорт  d порядок  c сброс  q выход"
 
     def _selected_row(self) -> Any | None:
         if not self.rows:
@@ -428,7 +530,7 @@ class RutrackerApp:
             return
         current = self.categories[self.category_index]["category"] if self.categories else ALL_CATEGORIES
         categories = [
-            {"category": ALL_CATEGORIES, "forums": self.stats["forums"], "topics": self.stats["topics"]}
+            {"category": ALL_CATEGORIES, "forums": self.stats["forums"], "topics": self.stats["magnets"]}
         ] + [dict(row) for row in self.storage.list_categories()]
         self.categories = categories
         self.category_index = next(

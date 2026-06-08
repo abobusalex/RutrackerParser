@@ -34,6 +34,7 @@ class StorageTest(unittest.TestCase):
                             size_bytes=1073741824,
                             seeders=2,
                             leechers=1,
+                            is_sticky=True,
                         ),
                     ]
                 )
@@ -43,7 +44,8 @@ class StorageTest(unittest.TestCase):
                 self.assertEqual(rows[0]["forum_title"], "Linux")
                 self.assertEqual(rows[0]["forum_category"], "Софт")
                 rows = storage.search_topics(category="Софт", sort_code="10")
-                self.assertEqual(rows[0]["id"], 42)
+                self.assertEqual(rows[0]["id"], 43)
+                self.assertEqual(rows[0]["is_sticky"], 1)
                 rows = storage.search_topics(category="Софт", sort_code="7", sort_desc=False)
                 self.assertEqual(rows[0]["id"], 43)
                 rows = storage.search_topics(category="Софт", sort_code="2", sort_desc=False)
@@ -54,7 +56,7 @@ class StorageTest(unittest.TestCase):
                 self.assertEqual(forums[0]["indexed_topics"], 2)
                 category = storage.list_categories()[0]
                 self.assertEqual(category["category"], "Софт")
-                self.assertEqual(category["topics"], 2)
+                self.assertEqual(category["topics"], 0)
             finally:
                 storage.close()
 

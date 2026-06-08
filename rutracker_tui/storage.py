@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS topics (
     seeders INTEGER,
     leechers INTEGER,
     downloads INTEGER,
+    is_sticky INTEGER NOT NULL DEFAULT 0,
     first_image_url TEXT,
     first_image_ascii TEXT,
     crawled_at TEXT,
@@ -159,6 +160,7 @@ class Storage:
                 topic.seeders,
                 topic.leechers,
                 topic.downloads,
+                1 if topic.is_sticky else 0,
             )
             for topic in topics
         ]
@@ -169,9 +171,9 @@ class Storage:
                 """
                 INSERT INTO topics(
                     id, forum_id, title, url, registered_at, size_text, size_bytes,
-                    seeders, leechers, downloads, updated_at
+                    seeders, leechers, downloads, is_sticky, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(id) DO UPDATE SET
                     forum_id=coalesce(excluded.forum_id, topics.forum_id),
                     title=excluded.title,
@@ -182,6 +184,7 @@ class Storage:
                     seeders=coalesce(excluded.seeders, topics.seeders),
                     leechers=coalesce(excluded.leechers, topics.leechers),
                     downloads=coalesce(excluded.downloads, topics.downloads),
+                    is_sticky=max(excluded.is_sticky, topics.is_sticky),
                     updated_at=CURRENT_TIMESTAMP
                 """,
                 rows,
@@ -195,9 +198,9 @@ class Storage:
                 INSERT INTO topics(
                     id, forum_id, title, url, description, magnet, registered_at,
                     size_text, size_bytes, seeders, leechers, downloads,
-                    first_image_url, first_image_ascii, crawled_at, updated_at
+                    is_sticky, first_image_url, first_image_ascii, crawled_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 ON CONFLICT(id) DO UPDATE SET
                     forum_id=coalesce(excluded.forum_id, topics.forum_id),
                     title=excluded.title,
@@ -210,6 +213,7 @@ class Storage:
                     seeders=coalesce(excluded.seeders, topics.seeders),
                     leechers=coalesce(excluded.leechers, topics.leechers),
                     downloads=coalesce(excluded.downloads, topics.downloads),
+                    is_sticky=max(excluded.is_sticky, topics.is_sticky),
                     first_image_url=coalesce(excluded.first_image_url, topics.first_image_url),
                     first_image_ascii=coalesce(excluded.first_image_ascii, topics.first_image_ascii),
                     crawled_at=CURRENT_TIMESTAMP,
@@ -228,6 +232,7 @@ class Storage:
                     topic.seeders,
                     topic.leechers,
                     topic.downloads,
+                    1 if topic.is_sticky else 0,
                     topic.first_image_url,
                     topic.first_image_ascii,
                 ),
@@ -326,7 +331,7 @@ class Storage:
                     count(DISTINCT forums.id) AS forums,
                     count(topics.id) AS topics
                 FROM forums
-                LEFT JOIN topics ON topics.forum_id = forums.id
+                LEFT JOIN topics ON topics.forum_id = forums.id AND topics.magnet IS NOT NULL
                 GROUP BY coalesce(forums.category, 'Прочее')
                 ORDER BY topics DESC, category
                 """
@@ -374,6 +379,9 @@ class Storage:
         forum_columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(forums)")}
         if "category" not in forum_columns:
             self._conn.execute("ALTER TABLE forums ADD COLUMN category TEXT")
+        topic_columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(topics)")}
+        if "is_sticky" not in topic_columns:
+            self._conn.execute("ALTER TABLE topics ADD COLUMN is_sticky INTEGER NOT NULL DEFAULT 0")
 
 
 def _fts_query(query: str) -> str:
@@ -385,7 +393,7 @@ def _order_by(sort_code: str, sort_desc: bool) -> str:
     column = SORTS.get(str(sort_code), SORTS["1"])[0]
     direction = "DESC" if sort_desc else "ASC"
     if column == "title":
-        return f"topics.title COLLATE NOCASE {direction}, topics.id DESC"
+        return f"coalesce(topics.is_sticky, 0) DESC, topics.title COLLATE NOCASE {direction}, topics.id DESC"
     if column == "registered_at":
-        return f"coalesce(topics.registered_at, topics.updated_at, '') {direction}, topics.id {direction}"
-    return f"coalesce(topics.{column}, 0) {direction}, topics.id DESC"
+        return f"coalesce(topics.is_sticky, 0) DESC, coalesce(topics.registered_at, topics.updated_at, '') {direction}, topics.id {direction}"
+    return f"coalesce(topics.is_sticky, 0) DESC, coalesce(topics.{column}, 0) {direction}, topics.id DESC"

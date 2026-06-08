@@ -163,11 +163,20 @@ class RutrackerCrawler:
     ) -> None:
         try:
             html = await self._fetch_text(client, topic.url)
-            details = parse_topic_details(html, topic.url, topic.forum_id, self.options.base_url)
+            details = parse_topic_details(
+                html,
+                topic.url,
+                topic.forum_id,
+                self.options.base_url,
+                is_sticky=topic.is_sticky,
+            )
+            if not details.magnet:
+                await self._log(f"topic W{worker_id}: no magnet, skipped | {details.title[:80]}")
+                return
             if self.options.include_images and details.first_image_url:
                 details.first_image_ascii = await self._fetch_ascii(client, details.first_image_url)
             self.storage.upsert_topic_details(details)
-            await self._log(f"topic W{worker_id}: {details.title[:80]}")
+            await self._log(f"topic W{worker_id}: saved magnet | {details.title[:80]}")
         except httpx.HTTPStatusError as exc:
             await self._log(f"topic W{worker_id}: {topic.id} skipped, {_http_error_message(exc)}")
         except Exception as exc:

@@ -26,6 +26,7 @@ class TopicSummary:
     leechers: int | None = None
     downloads: int | None = None
     registered_at: str | None = None
+    is_sticky: bool = False
 
 
 @dataclass(slots=True)
@@ -53,3 +54,4 @@ class TopicDetails:
     first_image_url: str | None = None
     first_image_ascii: str | None = None
     files: list[TopicFile] | None = None
+    is_sticky: bool = False

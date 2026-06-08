@@ -17,7 +17,7 @@ class ParserTest(unittest.TestCase):
 
     def test_parse_forum_topics(self):
         html = """
-        <tr>
+        <tr class="sticky">
           <td><a href="viewtopic.php?t=42">Ubuntu ISO</a></td>
           <td class="seedmed">11</td>
           <td class="leechmed">2</td>
@@ -28,6 +28,7 @@ class ParserTest(unittest.TestCase):
         self.assertEqual(topics[0].id, 42)
         self.assertEqual(topics[0].seeders, 11)
         self.assertEqual(topics[0].size_text, "4.7 GB")
+        self.assertTrue(topics[0].is_sticky)
 
     def test_date_parser_does_not_mix_nicknames(self):
         html = """
@@ -54,12 +55,13 @@ class ParserTest(unittest.TestCase):
           <span class="seedmed">15</span>
         </html>
         """
-        details = parse_topic_details(html, "https://rutracker.org/forum/viewtopic.php?t=42")
+        details = parse_topic_details(html, "https://rutracker.org/forum/viewtopic.php?t=42", is_sticky=True)
         self.assertEqual(details.id, 42)
         self.assertEqual(details.magnet, "magnet:?xt=urn:btih:abc")
         self.assertEqual(details.first_image_url, "https://rutracker.org/pic/title.jpg")
         self.assertEqual(details.files[0].path, "ubuntu.iso")
         self.assertEqual(details.seeders, 15)
+        self.assertTrue(details.is_sticky)
 
 
 if __name__ == "__main__":
