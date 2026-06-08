@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rutracker-tui"
+version = "0.1.0"
+description = "Terminal UI crawler and offline search index for RuTracker forum torrents."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "beautifulsoup4>=4.12",
+  "httpx>=0.27",
+  "pillow>=10.0",
+  "platformdirs>=4.2",
+  "rich>=13.7,<14",
+  "textual>=0.58,<1",
+]
+
+[project.scripts]
+rutracker-tui = "rutracker_tui.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["rutracker_tui*"]
