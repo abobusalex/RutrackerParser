@@ -8,7 +8,7 @@ from prompt_toolkit.output import DummyOutput
 
 from rutracker_tui.models import Forum, TopicDetails
 from rutracker_tui.storage import Storage
-from rutracker_tui.tui import RutrackerApp, _clean_log, _progress_bar, _truncate
+from rutracker_tui.tui import PAGE_SIZE, RutrackerApp, _clean_date, _clean_log, _progress_bar, _truncate
 
 
 class TuiStateTest(unittest.TestCase):
@@ -19,6 +19,7 @@ class TuiStateTest(unittest.TestCase):
                 app.refresh_results()
                 self.assertEqual(len(app.rows), 2)
                 self.assertEqual(app.logs, [])
+                app.switch_pane("topics")
                 app.move_selection(1)
                 self.assertEqual(app.selected_index, 1)
                 app.move_selection(10)
@@ -34,13 +35,13 @@ class TuiStateTest(unittest.TestCase):
             try:
                 app.refresh_results()
                 app.cycle_sort()
-                self.assertEqual(app.sort_code, "2")
+                self.assertEqual(app.sort_code, "4")
                 app.toggle_sort_direction()
                 self.assertFalse(app.sort_desc)
-                app.cycle_category()
-                self.assertIn(app.categories[app.category_index], {"Все", "Софт", "Прочее"})
+                app.move_category(1)
+                self.assertEqual(app.selected_category, "Софт")
                 app.clear_filters()
-                self.assertEqual(app.sort_code, "1")
+                self.assertEqual(app.sort_code, "10")
                 self.assertTrue(app.sort_desc)
                 self.assertEqual(app.category_index, 0)
                 self.assertEqual(app.query, "")
@@ -51,6 +52,8 @@ class TuiStateTest(unittest.TestCase):
         self.assertEqual(_clean_log("⏳ HTTP 521 на https://example.test"), "HTTP 521")
         self.assertEqual(_truncate("abcdef", 4), "abc…")
         self.assertEqual(_progress_bar(50, width=10), "[#####.....]")
+        self.assertIsNone(_clean_date("54 GarfieldX 2026"))
+        self.assertEqual(_clean_date("01.02.2026"), "01.02.2026")
 
     def test_progress_log_updates_sync_state(self):
         app = RutrackerApp()
@@ -72,10 +75,36 @@ class TuiStateTest(unittest.TestCase):
             application = app._build_application(output=DummyOutput())
             application.layout.focus(app.search_field)
             self.assertTrue(app._search_has_focus())
-            self.assertFalse(app._table_hotkeys_enabled())
-            application.layout.focus(app.table_control)
+            self.assertFalse(app._normal_hotkeys_enabled())
+            application.layout.focus(app.topic_control)
             self.assertFalse(app._search_has_focus())
-            self.assertTrue(app._table_hotkeys_enabled())
+            self.assertTrue(app._normal_hotkeys_enabled())
+
+    def test_topics_are_paged_and_do_not_render_ids(self):
+        with TemporaryDirectory() as temp_dir:
+            app = _app_with_topics(Path(temp_dir) / "test.sqlite3", count=PAGE_SIZE + 2)
+            try:
+                app.refresh_results()
+                app.switch_pane("topics")
+                self.assertEqual(app.current_page, 1)
+                app.move_topic(PAGE_SIZE)
+                self.assertEqual(app.current_page, 2)
+                text = "".join(fragment for _, fragment in app._topics_text())
+                self.assertNotIn("1000", text)
+                self.assertIn("Title", text)
+            finally:
+                app.storage.close()
+
+    def test_details_show_link_and_hide_bad_date(self):
+        with TemporaryDirectory() as temp_dir:
+            app = _app_with_topics(Path(temp_dir) / "test.sqlite3")
+            try:
+                app.refresh_results()
+                text = app._details_text()
+                self.assertIn("link: https://example.test/t=1000", text)
+                self.assertNotIn("id:", text)
+            finally:
+                app.storage.close()
 
 
 class TuiInputTest(unittest.IsolatedAsyncioTestCase):
@@ -98,28 +127,20 @@ class TuiInputTest(unittest.IsolatedAsyncioTestCase):
                 app.storage.close()
 
 
-def _app_with_topics(db_path: Path) -> RutrackerApp:
+def _app_with_topics(db_path: Path, count: int = 2) -> RutrackerApp:
     storage = Storage(db_path)
     storage.upsert_forums([Forum(id=1, title="Software", url="https://example.test/f=1", category="Софт")])
-    storage.upsert_topic_details(
-        TopicDetails(
-            id=1,
-            forum_id=1,
-            title="Ubuntu ISO",
-            url="https://example.test/t=1",
-            magnet="magnet:?xt=urn:btih:test",
-            seeders=10,
+    for index in range(count):
+        storage.upsert_topic_details(
+            TopicDetails(
+                id=1000 + index,
+                forum_id=1,
+                title="Ubuntu ISO" if index == 0 else f"Debian ISO {index}",
+                url=f"https://example.test/t={1000 + index}",
+                magnet="magnet:?xt=urn:btih:test" if index == 0 else None,
+                seeders=10 - index if index < 10 else 0,
+            )
         )
-    )
-    storage.upsert_topic_details(
-        TopicDetails(
-            id=2,
-            forum_id=1,
-            title="Debian ISO",
-            url="https://example.test/t=2",
-            seeders=0,
-        )
-    )
     app = RutrackerApp(db_path=db_path, base_url="https://example.test/forum/")
     app.storage = storage
     return app

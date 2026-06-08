@@ -321,10 +321,14 @@ class Storage:
         return list(
             self._conn.execute(
                 """
-                SELECT coalesce(category, 'Прочее') AS category, count(*) AS forums
+                SELECT
+                    coalesce(forums.category, 'Прочее') AS category,
+                    count(DISTINCT forums.id) AS forums,
+                    count(topics.id) AS topics
                 FROM forums
-                GROUP BY coalesce(category, 'Прочее')
-                ORDER BY category
+                LEFT JOIN topics ON topics.forum_id = forums.id
+                GROUP BY coalesce(forums.category, 'Прочее')
+                ORDER BY topics DESC, category
                 """
             )
         )

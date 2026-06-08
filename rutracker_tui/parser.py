@@ -28,9 +28,15 @@ SIZE_RE = re.compile(
     re.IGNORECASE,
 )
 INT_RE = re.compile(r"\d+")
+MONTH_WORDS = (
+    "янв|января|фев|февраля|мар|марта|апр|апреля|мая|май|июн|июня|июл|июля|"
+    "авг|августа|сен|сентября|окт|октября|ноя|ноября|дек|декабря|"
+    "jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|"
+    "aug|august|sep|september|oct|october|nov|november|dec|december"
+)
 DATE_HINT_RE = re.compile(
-    r"((?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4})(?:\s+\d{1,2}:\d{2})?|"
-    r"(?:\d{1,2}\s+[а-яёa-z]{3,12}\s+\d{4})(?:\s+\d{1,2}:\d{2})?)",
+    rf"(((?:0?[1-9]|[12]\d|3[01])[./-](?:0?[1-9]|1[0-2])[./-](?:\d{{2}}|\d{{4}}))(?:\s+\d{{1,2}}:\d{{2}})?|"
+    rf"((?:0?[1-9]|[12]\d|3[01])\s+(?:{MONTH_WORDS})\s+\d{{4}})(?:\s+\d{{1,2}}:\d{{2}})?)",
     re.IGNORECASE,
 )
 

@@ -52,7 +52,9 @@ class StorageTest(unittest.TestCase):
                 forums = storage.list_forums()
                 self.assertEqual(forums[0]["id"], 1)
                 self.assertEqual(forums[0]["indexed_topics"], 2)
-                self.assertEqual(storage.list_categories()[0]["category"], "Софт")
+                category = storage.list_categories()[0]
+                self.assertEqual(category["category"], "Софт")
+                self.assertEqual(category["topics"], 2)
             finally:
                 storage.close()
 

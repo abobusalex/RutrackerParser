@@ -29,6 +29,16 @@ class ParserTest(unittest.TestCase):
         self.assertEqual(topics[0].seeders, 11)
         self.assertEqual(topics[0].size_text, "4.7 GB")
 
+    def test_date_parser_does_not_mix_nicknames(self):
+        html = """
+        <tr>
+          <td><a href="viewtopic.php?t=43">100</a></td>
+          <td>54 GarfieldX 2026</td>
+        </tr>
+        """
+        topics = parse_forum_topics(html, forum_id=10)
+        self.assertIsNone(topics[0].registered_at)
+
     def test_parse_topic_details(self):
         html = """
         <html>
