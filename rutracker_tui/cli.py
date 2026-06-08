@@ -15,7 +15,7 @@ from rich.table import Table
 from .config import BASE_URL, default_db_path
 from .crawler import RutrackerCrawler, SyncOptions, options_from_env
 from .parser import parse_size
-from .storage import Storage
+from .storage import SORTS, Storage
 
 
 STDOUT_ENCODING = sys.stdout.encoding or "utf-8"
@@ -96,6 +96,15 @@ def build_parser() -> argparse.ArgumentParser:
     search_parser.add_argument("--min-seeders", type=int, help="Минимум сидов")
     search_parser.add_argument("--max-size", help="Максимальный размер, например 10 GB")
     search_parser.add_argument("--magnet-only", action="store_true", help="Показывать только темы с magnet")
+    search_parser.add_argument(
+        "-o",
+        "--sort",
+        choices=list(SORTS),
+        default="1",
+        help="Сортировка как на RuTracker: 1 дата, 2 название, 4 скачивания, 10 сиды, 11 личи, 7 размер",
+    )
+    search_parser.add_argument("--asc", action="store_true", help="Сортировать по возрастанию")
+    search_parser.add_argument("--category", help="Крупная категория форума")
     search_parser.add_argument("--limit", type=int, default=30, help="Сколько результатов вывести")
     search_parser.add_argument("--json", action="store_true", help="Вывести JSON вместо таблицы")
     search_parser.add_argument("--offline", action="store_true", help="Не синхронизировать пустую базу перед поиском")
@@ -181,17 +190,21 @@ def _search(args: argparse.Namespace) -> None:
             min_seeders=args.min_seeders,
             max_size_bytes=max_size,
             magnet_only=args.magnet_only,
+            category=args.category,
+            sort_code=args.sort,
+            sort_desc=not args.asc,
             limit=args.limit,
         )
         if args.json:
             _print_json([_row_dict(row) for row in rows])
             return
-        table = Table(title=_safe_text("🔎 RuTracker локальный поиск"))
-        table.add_column(_safe_text("🧲"))
+        table = Table(title="RuTracker локальный поиск")
+        table.add_column("M")
         table.add_column("ID", justify="right")
         table.add_column("Название", overflow="fold")
-        table.add_column(_safe_text("🌱"), justify="right")
-        table.add_column(_safe_text("📦"), justify="right")
+        table.add_column("Seeds", justify="right")
+        table.add_column("Size", justify="right")
+        table.add_column("Категория", overflow="fold")
         table.add_column("Форум", overflow="fold")
         for row in rows:
             table.add_row(
@@ -200,6 +213,7 @@ def _search(args: argparse.Namespace) -> None:
                 row["title"],
                 str(row["seeders"] or 0),
                 row["size_text"] or "—",
+                row["forum_category"] or "—",
                 row["forum_title"] or "—",
             )
         console.print(table)
@@ -266,12 +280,14 @@ def _forums(args: argparse.Namespace) -> None:
         table = Table(title=_safe_text("🗺️ Индексированные форумы"))
         table.add_column("ID", justify="right")
         table.add_column("Название", overflow="fold")
+        table.add_column("Категория", overflow="fold")
         table.add_column("Тем")
         table.add_column("В базе")
         for row in rows:
             table.add_row(
                 str(row["id"]),
                 row["title"],
+                row["category"] or "—",
                 str(row["topics_count"] or "—"),
                 str(row["indexed_topics"] or 0),
             )

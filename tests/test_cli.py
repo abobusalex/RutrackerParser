@@ -28,12 +28,17 @@ class CliParserTest(unittest.TestCase):
         self.assertEqual(args.delay, 1.5)
 
     def test_search_json_flags(self):
-        args = build_parser().parse_args(["search", "ubuntu", "--json", "--offline", "--limit", "5"])
+        args = build_parser().parse_args(
+            ["search", "ubuntu", "--json", "--offline", "--limit", "5", "-o", "10", "--category", "Аниме", "--asc"]
+        )
         self.assertEqual(args.command, "search")
         self.assertEqual(args.query, "ubuntu")
         self.assertTrue(args.json)
         self.assertTrue(args.offline)
         self.assertEqual(args.limit, 5)
+        self.assertEqual(args.sort, "10")
+        self.assertEqual(args.category, "Аниме")
+        self.assertTrue(args.asc)
 
 
 if __name__ == "__main__":

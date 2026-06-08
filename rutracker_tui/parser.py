@@ -10,6 +10,19 @@ from .config import BASE_URL
 from .models import Forum, TopicDetails, TopicFile, TopicSummary
 
 
+CATEGORY_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Аниме", ("аниме", "anime")),
+    ("Сериалы", ("сериал", "series", "tv")),
+    ("Книги и журналы", ("книг", "журнал", "литератур", "комикс", "аудиокниг")),
+    ("Фильмы", ("фильм", "кино", "movie", "dvd", "blu-ray")),
+    ("Музыка", ("музык", "music", "lossless", "mp3", "flac")),
+    ("Игры", ("игр", "game", "xbox", "playstation", "nintendo")),
+    ("Софт", ("софт", "программ", "windows", "linux", "macos", "android")),
+    ("Спорт", ("спорт", "футбол", "хоккей", "баскетбол")),
+    ("Обучение", ("обуч", "урок", "курс", "видеоурок")),
+)
+
+
 SIZE_RE = re.compile(
     r"(?P<num>\d+(?:[.,]\d+)?)\s*(?P<unit>Б|B|KB|КБ|KiB|MB|МБ|MiB|GB|ГБ|GiB|TB|ТБ|TiB)",
     re.IGNORECASE,
@@ -96,6 +109,7 @@ def parse_forums(html: str, base_url: str = BASE_URL) -> list[Forum]:
             continue
         row = link.find_parent("tr")
         row_text = text_of(row)
+        category_title = _nearest_category_title(link)
         numbers = [int(item) for item in INT_RE.findall(row_text)]
         topics_count = numbers[-2] if len(numbers) >= 2 else None
         posts_count = numbers[-1] if len(numbers) >= 1 else None
@@ -103,6 +117,7 @@ def parse_forums(html: str, base_url: str = BASE_URL) -> list[Forum]:
             id=forum_id,
             title=title,
             url=url,
+            category=guess_category(" ".join(part for part in (category_title, row_text, title) if part)),
             topics_count=topics_count,
             posts_count=posts_count,
         )
@@ -268,3 +283,26 @@ def _class_int(node: Tag | BeautifulSoup | None, class_hints: tuple[str, ...]) -
             if value is not None:
                 return value
     return None
+
+
+def guess_category(text: str) -> str:
+    normalized = text.lower()
+    for category, hints in CATEGORY_RULES:
+        if any(hint in normalized for hint in hints):
+            return category
+    return "Прочее"
+
+
+def _nearest_category_title(link: Tag) -> str:
+    for node in link.find_all_previous(True, limit=80):
+        classes = " ".join(node.get("class", [])).lower()
+        href = node.get("href") or ""
+        if "cattitle" in classes or "cat_title" in classes or "index.php?c=" in href:
+            value = text_of(node)
+            if value:
+                return value
+        if node.name in {"h1", "h2", "h3", "th"}:
+            value = text_of(node)
+            if value:
+                return value
+    return ""

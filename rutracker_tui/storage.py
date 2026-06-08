@@ -8,6 +8,16 @@ from typing import Iterable, Iterator
 from .models import Forum, TopicDetails, TopicFile, TopicSummary
 
 
+SORTS = {
+    "1": ("registered_at", "Зарегистрирован"),
+    "2": ("title", "Название темы"),
+    "4": ("downloads", "Количество скачиваний"),
+    "10": ("seeders", "Количество сидов"),
+    "11": ("leechers", "Количество личей"),
+    "7": ("size_bytes", "Размер"),
+}
+
+
 SCHEMA = """
 PRAGMA journal_mode=WAL;
 PRAGMA foreign_keys=ON;
@@ -15,6 +25,7 @@ PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS forums (
     id INTEGER PRIMARY KEY,
     parent_id INTEGER,
+    category TEXT,
     title TEXT NOT NULL,
     url TEXT NOT NULL,
     topics_count INTEGER,
@@ -91,6 +102,7 @@ class Storage:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.executescript(SCHEMA)
+        self._migrate()
         self._conn.commit()
 
     def close(self) -> None:
@@ -109,10 +121,11 @@ class Storage:
         with self.transaction() as conn:
             conn.executemany(
                 """
-                INSERT INTO forums(id, parent_id, title, url, topics_count, posts_count, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                INSERT INTO forums(id, parent_id, category, title, url, topics_count, posts_count, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(id) DO UPDATE SET
                     parent_id=excluded.parent_id,
+                    category=excluded.category,
                     title=excluded.title,
                     url=excluded.url,
                     topics_count=excluded.topics_count,
@@ -120,7 +133,15 @@ class Storage:
                     updated_at=CURRENT_TIMESTAMP
                 """,
                 [
-                    (forum.id, forum.parent_id, forum.title, forum.url, forum.topics_count, forum.posts_count)
+                    (
+                        forum.id,
+                        forum.parent_id,
+                        forum.category,
+                        forum.title,
+                        forum.url,
+                        forum.topics_count,
+                        forum.posts_count,
+                    )
                     for forum in forums
                 ],
             )
@@ -229,6 +250,9 @@ class Storage:
         min_seeders: int | None = None,
         max_size_bytes: int | None = None,
         magnet_only: bool = False,
+        category: str | None = None,
+        sort_code: str = "1",
+        sort_desc: bool = True,
         limit: int = 100,
     ) -> list[sqlite3.Row]:
         conditions = []
@@ -246,17 +270,21 @@ class Storage:
             params.append(max_size_bytes)
         if magnet_only:
             conditions.append("magnet IS NOT NULL")
+        if category:
+            conditions.append("forums.category = ?")
+            params.append(category)
         where = "WHERE " + " AND ".join(conditions) if conditions else ""
         params.append(limit)
+        order_by = _order_by(sort_code, sort_desc)
         return list(
             self._conn.execute(
                 f"""
-                SELECT topics.*, forums.title AS forum_title
+                SELECT topics.*, forums.title AS forum_title, forums.category AS forum_category
                 FROM topics
                 LEFT JOIN forums ON forums.id = topics.forum_id
                 {join}
                 {where}
-                ORDER BY coalesce(seeders, 0) DESC, updated_at DESC
+                ORDER BY {order_by}
                 LIMIT ?
                 """,
                 params,
@@ -266,7 +294,7 @@ class Storage:
     def get_topic(self, topic_id: int) -> sqlite3.Row | None:
         return self._conn.execute(
             """
-            SELECT topics.*, forums.title AS forum_title
+            SELECT topics.*, forums.title AS forum_title, forums.category AS forum_category
             FROM topics
             LEFT JOIN forums ON forums.id = topics.forum_id
             WHERE topics.id = ?
@@ -286,6 +314,18 @@ class Storage:
                 LIMIT ?
                 """,
                 (limit,),
+            )
+        )
+
+    def list_categories(self) -> list[sqlite3.Row]:
+        return list(
+            self._conn.execute(
+                """
+                SELECT coalesce(category, 'Прочее') AS category, count(*) AS forums
+                FROM forums
+                GROUP BY coalesce(category, 'Прочее')
+                ORDER BY category
+                """
             )
         )
 
@@ -326,7 +366,22 @@ class Storage:
         stats = self.stats()
         return stats["forums"] == 0 and stats["topics"] == 0
 
+    def _migrate(self) -> None:
+        forum_columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(forums)")}
+        if "category" not in forum_columns:
+            self._conn.execute("ALTER TABLE forums ADD COLUMN category TEXT")
+
 
 def _fts_query(query: str) -> str:
     tokens = [token.replace('"', "") for token in query.split() if token.strip()]
     return " ".join(f'"{token}"*' for token in tokens) if tokens else '""'
+
+
+def _order_by(sort_code: str, sort_desc: bool) -> str:
+    column = SORTS.get(str(sort_code), SORTS["1"])[0]
+    direction = "DESC" if sort_desc else "ASC"
+    if column == "title":
+        return f"topics.title COLLATE NOCASE {direction}, topics.id DESC"
+    if column == "registered_at":
+        return f"coalesce(topics.registered_at, topics.updated_at, '') {direction}, topics.id {direction}"
+    return f"coalesce(topics.{column}, 0) {direction}, topics.id DESC"

@@ -6,7 +6,7 @@ import unittest
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-from rutracker_tui.models import TopicDetails
+from rutracker_tui.models import Forum, TopicDetails
 from rutracker_tui.storage import Storage
 from rutracker_tui.tui import RutrackerApp, _clean_log, _truncate
 
@@ -33,14 +33,16 @@ class TuiStateTest(unittest.TestCase):
             app = _app_with_topics(Path(temp_dir) / "test.sqlite3")
             try:
                 app.refresh_results()
-                app.toggle_magnet()
-                self.assertTrue(app.magnet_only)
-                self.assertEqual(len(app.rows), 1)
-                app.toggle_seed_filter()
-                self.assertEqual(app.min_seeders, 1)
+                app.cycle_sort()
+                self.assertEqual(app.sort_code, "2")
+                app.toggle_sort_direction()
+                self.assertFalse(app.sort_desc)
+                app.cycle_category()
+                self.assertIn(app.categories[app.category_index], {"Все", "Софт", "Прочее"})
                 app.clear_filters()
-                self.assertFalse(app.magnet_only)
-                self.assertIsNone(app.min_seeders)
+                self.assertEqual(app.sort_code, "1")
+                self.assertTrue(app.sort_desc)
+                self.assertEqual(app.category_index, 0)
                 self.assertEqual(app.query, "")
             finally:
                 app.storage.close()
@@ -82,16 +84,18 @@ class TuiInputTest(unittest.IsolatedAsyncioTestCase):
                     application.exit()
                     await task
                 self.assertEqual(app.query, "f")
-                self.assertIsNone(app.min_seeders)
+                self.assertIsNone(app.selected_category)
             finally:
                 app.storage.close()
 
 
 def _app_with_topics(db_path: Path) -> RutrackerApp:
     storage = Storage(db_path)
+    storage.upsert_forums([Forum(id=1, title="Software", url="https://example.test/f=1", category="Софт")])
     storage.upsert_topic_details(
         TopicDetails(
             id=1,
+            forum_id=1,
             title="Ubuntu ISO",
             url="https://example.test/t=1",
             magnet="magnet:?xt=urn:btih:test",
@@ -101,6 +105,7 @@ def _app_with_topics(db_path: Path) -> RutrackerApp:
     storage.upsert_topic_details(
         TopicDetails(
             id=2,
+            forum_id=1,
             title="Debian ISO",
             url="https://example.test/t=2",
             seeders=0,

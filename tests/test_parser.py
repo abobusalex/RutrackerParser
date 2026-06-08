@@ -9,10 +9,11 @@ class ParserTest(unittest.TestCase):
         self.assertEqual(parse_size("700 МБ")[1], 734003200)
 
     def test_parse_forums(self):
-        html = '<a href="viewforum.php?f=10">Музыка</a>'
+        html = '<tr><td>Книги и журналы</td><td><a href="viewforum.php?f=10">Аудиокниги</a></td></tr>'
         forums = parse_forums(html)
         self.assertEqual(forums[0].id, 10)
-        self.assertEqual(forums[0].title, "Музыка")
+        self.assertEqual(forums[0].title, "Аудиокниги")
+        self.assertEqual(forums[0].category, "Книги и журналы")
 
     def test_parse_forum_topics(self):
         html = """

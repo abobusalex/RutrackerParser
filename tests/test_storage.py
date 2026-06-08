@@ -12,7 +12,7 @@ class StorageTest(unittest.TestCase):
             storage = Storage(Path(temp_dir) / "test.sqlite3")
             try:
                 self.assertTrue(storage.is_empty())
-                storage.upsert_forums([Forum(id=1, title="Linux", url="https://example.test/f=1")])
+                storage.upsert_forums([Forum(id=1, title="Linux", url="https://example.test/f=1", category="Софт")])
                 storage.upsert_topic_summaries(
                     [
                         TopicSummary(
@@ -24,17 +24,35 @@ class StorageTest(unittest.TestCase):
                             size_bytes=5046586572,
                             seeders=15,
                             leechers=2,
-                        )
+                        ),
+                        TopicSummary(
+                            id=43,
+                            forum_id=1,
+                            title="Alpine ISO",
+                            url="https://example.test/t=43",
+                            size_text="1 GB",
+                            size_bytes=1073741824,
+                            seeders=2,
+                            leechers=1,
+                        ),
                     ]
                 )
                 rows = storage.search_topics("ubuntu", min_seeders=10, magnet_only=False)
                 self.assertEqual(len(rows), 1)
                 self.assertEqual(rows[0]["id"], 42)
                 self.assertEqual(rows[0]["forum_title"], "Linux")
+                self.assertEqual(rows[0]["forum_category"], "Софт")
+                rows = storage.search_topics(category="Софт", sort_code="10")
+                self.assertEqual(rows[0]["id"], 42)
+                rows = storage.search_topics(category="Софт", sort_code="7", sort_desc=False)
+                self.assertEqual(rows[0]["id"], 43)
+                rows = storage.search_topics(category="Софт", sort_code="2", sort_desc=False)
+                self.assertEqual(rows[0]["title"], "Alpine ISO")
                 self.assertFalse(storage.is_empty())
                 forums = storage.list_forums()
                 self.assertEqual(forums[0]["id"], 1)
-                self.assertEqual(forums[0]["indexed_topics"], 1)
+                self.assertEqual(forums[0]["indexed_topics"], 2)
+                self.assertEqual(storage.list_categories()[0]["category"], "Софт")
             finally:
                 storage.close()
 

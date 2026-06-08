@@ -8,6 +8,7 @@ class Forum:
     id: int
     title: str
     url: str
+    category: str | None = None
     parent_id: int | None = None
     topics_count: int | None = None
     posts_count: int | None = None

@@ -18,7 +18,7 @@ from prompt_toolkit.widgets import TextArea
 from .config import BASE_URL, default_db_path
 from .crawler import RutrackerCrawler, SyncOptions, options_from_env
 from .parser import parse_size
-from .storage import Storage
+from .storage import SORTS, Storage
 
 
 MAX_ROWS = 300
@@ -32,8 +32,11 @@ class RutrackerApp:
         self.rows: list[Any] = []
         self.selected_index = 0
         self.query = ""
-        self.magnet_only = False
-        self.min_seeders: int | None = None
+        self.sort_codes = ["1", "2", "4", "10", "11", "7"]
+        self.sort_code = "1"
+        self.sort_desc = True
+        self.categories = ["Все"]
+        self.category_index = 0
         self.max_size_text = ""
         self.logs: list[str] = []
         self.stats = {
@@ -68,9 +71,10 @@ class RutrackerApp:
         max_size = parse_size(self.max_size_text)[1] if self.max_size_text else None
         self.rows = self.storage.search_topics(
             query=self.query,
-            min_seeders=self.min_seeders,
             max_size_bytes=max_size,
-            magnet_only=self.magnet_only,
+            category=self.selected_category,
+            sort_code=self.sort_code,
+            sort_desc=self.sort_desc,
             limit=MAX_ROWS,
         )
         self.selected_index = min(self.selected_index, max(0, len(self.rows) - 1))
@@ -84,28 +88,34 @@ class RutrackerApp:
         self.selected_index = max(0, min(len(self.rows) - 1, self.selected_index + delta))
         self._invalidate()
 
-    def toggle_magnet(self) -> None:
-        self.magnet_only = not self.magnet_only
-        self.log(f"magnet: {'on' if self.magnet_only else 'off'}")
+    @property
+    def selected_category(self) -> str | None:
+        category = self.categories[self.category_index] if self.categories else "Все"
+        return None if category == "Все" else category
+
+    def cycle_sort(self) -> None:
+        index = self.sort_codes.index(self.sort_code)
+        self.sort_code = self.sort_codes[(index + 1) % len(self.sort_codes)]
+        self.log(f"sort {SORTS[self.sort_code][1]}")
         self.refresh_results()
 
-    def toggle_seed_filter(self) -> None:
-        if self.min_seeders is None:
-            self.min_seeders = 1
-        elif self.min_seeders == 1:
-            self.min_seeders = 10
-        elif self.min_seeders == 10:
-            self.min_seeders = 100
-        else:
-            self.min_seeders = None
-        self.log(f"seeds: {self.min_seeders if self.min_seeders is not None else 'any'}")
+    def toggle_sort_direction(self) -> None:
+        self.sort_desc = not self.sort_desc
+        self.log(f"direction {'desc' if self.sort_desc else 'asc'}")
+        self.refresh_results()
+
+    def cycle_category(self) -> None:
+        self._load_categories()
+        self.category_index = (self.category_index + 1) % len(self.categories)
+        self.log(f"category {self.categories[self.category_index]}")
         self.refresh_results()
 
     def clear_filters(self) -> None:
         self.query = ""
         self.search_field.text = ""
-        self.magnet_only = False
-        self.min_seeders = None
+        self.sort_code = "1"
+        self.sort_desc = True
+        self.category_index = 0
         self.max_size_text = ""
         self.log("filters cleared")
         self.refresh_results()
@@ -187,13 +197,17 @@ class RutrackerApp:
         def _(event: Any) -> None:
             self.refresh_results()
 
-        @bindings.add("m", filter=table_mode)
+        @bindings.add("o", filter=table_mode)
         def _(event: Any) -> None:
-            self.toggle_magnet()
+            self.cycle_sort()
 
-        @bindings.add("f", filter=table_mode)
+        @bindings.add("d", filter=table_mode)
         def _(event: Any) -> None:
-            self.toggle_seed_filter()
+            self.toggle_sort_direction()
+
+        @bindings.add("g", filter=table_mode)
+        def _(event: Any) -> None:
+            self.cycle_category()
 
         @bindings.add("c", filter=table_mode)
         def _(event: Any) -> None:
@@ -260,10 +274,10 @@ class RutrackerApp:
         filters = []
         if self.query:
             filters.append(f"query={self.query}")
-        if self.magnet_only:
-            filters.append("magnet")
-        if self.min_seeders is not None:
-            filters.append(f"seeds>={self.min_seeders}")
+        if self.selected_category:
+            filters.append(f"group={self.selected_category}")
+        filters.append(f"sort={SORTS[self.sort_code][1]}")
+        filters.append("desc" if self.sort_desc else "asc")
         filter_text = " | ".join(filters) if filters else "no filters"
         return HTML(f"<b>RuTracker</b>  {status}  |  rows {len(self.rows)}  |  topics {self.stats['topics']}\n{filter_text}")
 
@@ -310,7 +324,7 @@ class RutrackerApp:
     def _footer_text(self) -> str:
         if self._search_has_focus():
             return "enter применить  esc назад"
-        return "q выход  / поиск  s синхр  r обновить  m magnet  f сиды  c сброс"
+        return "q выход  / поиск  s синхр  r обновить  o сортировка  d порядок  g раздел  c сброс"
 
     def _selected_row(self) -> Any | None:
         if not self.rows:
@@ -321,6 +335,15 @@ class RutrackerApp:
         if not self.storage:
             return
         self.stats = self.storage.stats()
+        self._load_categories()
+
+    def _load_categories(self) -> None:
+        if not self.storage:
+            return
+        current = self.categories[self.category_index] if self.categories else "Все"
+        categories = ["Все"] + [row["category"] for row in self.storage.list_categories()]
+        self.categories = categories
+        self.category_index = categories.index(current) if current in categories else 0
 
     def _invalidate(self) -> None:
         if self.app is None:
