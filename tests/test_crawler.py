@@ -1,6 +1,9 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
-from rutracker_tui.crawler import _retryable_status
+from rutracker_tui.crawler import RutrackerCrawler, SyncOptions, _retryable_status
+from rutracker_tui.models import Forum
 
 
 class CrawlerTest(unittest.TestCase):
@@ -9,6 +12,23 @@ class CrawlerTest(unittest.TestCase):
         self.assertTrue(_retryable_status(429))
         self.assertTrue(_retryable_status(503))
         self.assertFalse(_retryable_status(404))
+
+    def test_forum_progress_log_contains_percent_and_branch(self):
+        with TemporaryDirectory() as temp_dir:
+            crawler = RutrackerCrawler(SyncOptions(db_path=Path(temp_dir) / "test.sqlite3", base_url="https://example.test/"))
+            try:
+                message = crawler._forum_progress(
+                    Forum(id=1, title="OVA", url="https://example.test/f=1", category="Аниме"),
+                    forum_index=3,
+                    total_forums=286,
+                    page_index=2,
+                    state="12 topics",
+                )
+                self.assertIn("progress 3/286", message)
+                self.assertIn("Аниме / OVA", message)
+                self.assertIn("elapsed", message)
+            finally:
+                crawler.storage.close()
 
 
 if __name__ == "__main__":

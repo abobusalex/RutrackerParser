@@ -6,7 +6,7 @@ Python-приложение для синхронизации публичных
 
 - 🧵 асинхронный многопоточный по смыслу crawler через `asyncio` + пул HTTP-запросов;
 - 🔎 быстрый локальный поиск по названиям и описаниям;
-- 🎚️ фильтры по сидам, личам, размеру и наличию magnet-ссылки;
+- ⚙️ фильтры и сортировки по категориям, сидам, личам, размеру, скачиваниям и magnet-ссылкам;
 - ⌨️ лёгкий TUI на `prompt_toolkit`: `↑/↓`, `/`, `s`, `o`, `d`, `g`, `c`, `q`;
 - 🧲 сбор magnet-ссылок, описания, даты регистрации, списка файлов и размеров;
 - 🖼️ ASCII-слепок первой картинки из заголовочного/первого поста без сохранения изображения;
@@ -26,56 +26,19 @@ py -m rutracker_tui
 - если данные уже есть — сразу открывает TUI;
 - если сайт временно отвечает `521/429/5xx` — показывает понятную ошибку и не валится сырым traceback.
 
-## Команды
-
-Синхронизация:
+## Использование
 
 ```powershell
 py -m rutracker_tui sync --workers 8 --delay 0.7
-```
-
-Поиск без TUI:
-
-```powershell
 py -m rutracker_tui search "linux iso" --min-seeders 5
-```
-
-Сортировка как в RuTracker `name="o"`:
-
-```powershell
 py -m rutracker_tui search "linux" -o 10      # по сидам
 py -m rutracker_tui search "linux" -o 7 --asc # по размеру вверх
 py -m rutracker_tui search "" --category "Аниме"
-```
-
-Показать карточку темы:
-
-```powershell
 py -m rutracker_tui show 123456 --json
-```
-
-Показать файлы раздачи:
-
-```powershell
 py -m rutracker_tui files 123456
-```
-
-Напечатать magnet:
-
-```powershell
 py -m rutracker_tui magnet 123456
-```
-
-Список форумов и статистика:
-
-```powershell
 py -m rutracker_tui forums --limit 20
 py -m rutracker_tui stats --json
-```
-
-Диагностика базы и доступности сайта:
-
-```powershell
 py -m rutracker_tui doctor
 ```
 

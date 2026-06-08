@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,11 @@ from .storage import SORTS, Storage
 
 
 MAX_ROWS = 300
+SPINNER = "|/-\\"
+PROGRESS_RE = re.compile(
+    r"progress (?P<done>\d+)/(?P<total>\d+) (?P<percent>\d+(?:\.\d+)?)% \| "
+    r"(?P<branch>.*?) \| page (?P<page>\d+) \| (?P<state>.*?) \| elapsed (?P<elapsed>\d{2}:\d{2}:\d{2})"
+)
 
 
 class RutrackerApp:
@@ -39,6 +45,12 @@ class RutrackerApp:
         self.category_index = 0
         self.max_size_text = ""
         self.logs: list[str] = []
+        self.spinner_index = 0
+        self.sync_percent = 0.0
+        self.sync_elapsed = "00:00:00"
+        self.sync_branch = ""
+        self.sync_state = ""
+        self.sync_started_at: float | None = None
         self.stats = {
             "forums": 0,
             "topics": 0,
@@ -121,6 +133,7 @@ class RutrackerApp:
         self.refresh_results()
 
     def log(self, message: str) -> None:
+        self._apply_progress(message)
         clean_message = _clean_log(message)
         if clean_message:
             self.logs.append(clean_message)
@@ -229,7 +242,12 @@ class RutrackerApp:
 
     async def _sync(self) -> None:
         self.syncing = True
+        self.sync_started_at = time.monotonic()
+        self.sync_percent = 0.0
+        self.sync_branch = ""
+        self.sync_state = "starting"
         self.log("sync started")
+        animation_task = asyncio.create_task(self._animate_sync())
         options = options_from_env(self.db_path, self.base_url, workers=4, delay=1.0)
         crawler = RutrackerCrawler(
             SyncOptions(
@@ -254,9 +272,22 @@ class RutrackerApp:
         except Exception as exc:
             self.log(f"sync error: {type(exc).__name__}")
         finally:
+            animation_task.cancel()
+            await asyncio.gather(animation_task, return_exceptions=True)
             await crawler.close()
             self.syncing = False
             self.refresh_results()
+
+    async def _animate_sync(self) -> None:
+        while self.syncing:
+            self.spinner_index = (self.spinner_index + 1) % len(SPINNER)
+            if self.sync_started_at is not None:
+                seconds = int(time.monotonic() - self.sync_started_at)
+                hours, remainder = divmod(seconds, 3600)
+                minutes, seconds = divmod(remainder, 60)
+                self.sync_elapsed = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            self._invalidate()
+            await asyncio.sleep(0.12)
 
     def _search_has_focus(self) -> bool:
         if self.app is None:
@@ -279,7 +310,18 @@ class RutrackerApp:
         filters.append(f"sort={SORTS[self.sort_code][1]}")
         filters.append("desc" if self.sort_desc else "asc")
         filter_text = " | ".join(filters) if filters else "no filters"
-        return HTML(f"<b>RuTracker</b>  {status}  |  rows {len(self.rows)}  |  topics {self.stats['topics']}\n{filter_text}")
+        if self.syncing:
+            spinner = SPINNER[self.spinner_index]
+            bar = _progress_bar(self.sync_percent)
+            branch = self.sync_branch or "index"
+            return HTML(
+                f"<b>RuTracker</b>  {spinner} {self.sync_percent:5.1f}% {bar}  elapsed {self.sync_elapsed}\n"
+                f"{branch}  |  {self.sync_state}"
+            )
+        return HTML(
+            f"<b>RuTracker</b>  {status}  |  rows {len(self.rows)}  |  topics {self.stats['topics']}\n"
+            f"{filter_text}"
+        )
 
     def _table_text(self) -> list[tuple[str, str]]:
         fragments: list[tuple[str, str]] = [
@@ -345,6 +387,15 @@ class RutrackerApp:
         self.categories = categories
         self.category_index = categories.index(current) if current in categories else 0
 
+    def _apply_progress(self, message: str) -> None:
+        match = PROGRESS_RE.search(message)
+        if not match:
+            return
+        self.sync_percent = float(match.group("percent"))
+        self.sync_elapsed = match.group("elapsed")
+        self.sync_branch = match.group("branch")
+        self.sync_state = f"page {match.group('page')} | {match.group('state')}"
+
     def _invalidate(self) -> None:
         if self.app is None:
             return
@@ -358,6 +409,11 @@ def _truncate(value: str, length: int) -> str:
     return value if len(value) <= length else value[: max(0, length - 1)] + "…"
 
 
+def _progress_bar(percent: float, width: int = 24) -> str:
+    filled = max(0, min(width, int(width * percent / 100)))
+    return "[" + "#" * filled + "." * (width - filled) + "]"
+
+
 def _short_http_error(exc: httpx.HTTPStatusError) -> str:
     status_code = exc.response.status_code
     if status_code == 521:
@@ -368,6 +424,13 @@ def _short_http_error(exc: httpx.HTTPStatusError) -> str:
 
 
 def _clean_log(message: str) -> str:
+    progress_match = PROGRESS_RE.search(message)
+    if progress_match:
+        return (
+            f"{progress_match.group('done')}/{progress_match.group('total')} "
+            f"{progress_match.group('percent')}% | {progress_match.group('branch')} | "
+            f"{progress_match.group('state')}"
+        )
     message = re.sub(r"https?://\S+", "", message)
     message = message.replace("⏳", "").replace("⚠️", "").replace("🌐", "").replace("🗺️", "")
     message = re.sub(r"\s+", " ", message).strip()

@@ -8,7 +8,7 @@ from prompt_toolkit.output import DummyOutput
 
 from rutracker_tui.models import Forum, TopicDetails
 from rutracker_tui.storage import Storage
-from rutracker_tui.tui import RutrackerApp, _clean_log, _truncate
+from rutracker_tui.tui import RutrackerApp, _clean_log, _progress_bar, _truncate
 
 
 class TuiStateTest(unittest.TestCase):
@@ -50,6 +50,15 @@ class TuiStateTest(unittest.TestCase):
     def test_log_cleanup_is_plain(self):
         self.assertEqual(_clean_log("⏳ HTTP 521 на https://example.test"), "HTTP 521")
         self.assertEqual(_truncate("abcdef", 4), "abc…")
+        self.assertEqual(_progress_bar(50, width=10), "[#####.....]")
+
+    def test_progress_log_updates_sync_state(self):
+        app = RutrackerApp()
+        app.log("progress 3/286 1.0% | Аниме / OVA | page 2 | 12 topics, queued 20 | elapsed 00:00:07")
+        self.assertEqual(app.sync_percent, 1.0)
+        self.assertEqual(app.sync_elapsed, "00:00:07")
+        self.assertEqual(app.sync_branch, "Аниме / OVA")
+        self.assertIn("3/286 1.0%", app.logs[-1])
 
     def test_prompt_toolkit_application_builds(self):
         with TemporaryDirectory() as temp_dir:

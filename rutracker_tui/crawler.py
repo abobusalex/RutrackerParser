@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,6 +43,7 @@ class RutrackerCrawler:
         self._seen_forum_pages: set[str] = set()
         self._seen_topics: set[int] = set()
         self._topic_count = 0
+        self._started_at = time.monotonic()
 
     async def close(self) -> None:
         self.storage.close()
@@ -54,13 +56,14 @@ class RutrackerCrawler:
             if self.options.username and self.options.password:
                 await self._login(client)
             index_url = self.options.base_url.rstrip("/") + "/index.php"
-            await self._log("🌐 Загружаю карту форумов")
+            self._started_at = time.monotonic()
+            await self._log("index: loading forum map")
             index_html = await self._fetch_text(client, index_url)
             forums = parse_forums(index_html, self.options.base_url)
             if self.options.max_forums:
                 forums = forums[: self.options.max_forums]
             self.storage.upsert_forums(forums)
-            await self._log(f"🗺️ Форумов найдено: {len(forums)}")
+            await self._log(f"index: {len(forums)} forums, elapsed {self._elapsed()}")
             await self._crawl_forums(client, forums)
 
     async def _crawl_forums(self, client: httpx.AsyncClient, forums: list[Forum]) -> None:
@@ -70,10 +73,11 @@ class RutrackerCrawler:
             for index in range(self.options.workers)
         ]
         try:
-            for forum in forums:
+            total = len(forums)
+            for index, forum in enumerate(forums, start=1):
                 if self.options.max_topics and self._topic_count >= self.options.max_topics:
                     break
-                await self._crawl_forum(client, forum, topic_queue)
+                await self._crawl_forum(client, forum, topic_queue, index, total)
             await topic_queue.join()
         finally:
             for worker in workers:
@@ -85,23 +89,33 @@ class RutrackerCrawler:
         client: httpx.AsyncClient,
         forum: Forum,
         topic_queue: asyncio.Queue[TopicSummary],
+        forum_index: int,
+        total_forums: int,
     ) -> None:
         queue = deque([forum.url])
+        page_index = 0
         while queue:
             if self.options.max_topics and self._topic_count >= self.options.max_topics:
                 return
             url = queue.popleft()
             if url in self._seen_forum_pages:
                 continue
+            page_index += 1
             self._seen_forum_pages.add(url)
-            await self._log(f"📚 {forum.title}: {url}")
+            await self._log(self._forum_progress(forum, forum_index, total_forums, page_index, "loading"))
             try:
                 html = await self._fetch_text(client, url)
             except httpx.HTTPStatusError as exc:
-                await self._log(f"⚠️ Форум пропущен: {_http_error_message(exc)}")
+                await self._log(
+                    f"skip {forum_index}/{total_forums} | {forum.category or 'Прочее'} / {forum.title}: "
+                    f"{_http_error_message(exc)}"
+                )
                 continue
             except httpx.HTTPError as exc:
-                await self._log(f"⚠️ Форум пропущен из-за сетевой ошибки: {exc}")
+                await self._log(
+                    f"skip {forum_index}/{total_forums} | {forum.category or 'Прочее'} / {forum.title}: "
+                    f"{type(exc).__name__}"
+                )
                 continue
             pages = parse_pagination_urls(html, self.options.base_url)
             for page in pages:
@@ -109,6 +123,15 @@ class RutrackerCrawler:
                     queue.append(page)
             topics = parse_forum_topics(html, forum.id, self.options.base_url)
             self.storage.upsert_topic_summaries(topics)
+            await self._log(
+                self._forum_progress(
+                    forum,
+                    forum_index,
+                    total_forums,
+                    page_index,
+                    f"{len(topics)} topics, queued {self._topic_count}",
+                )
+            )
             for topic in topics:
                 if topic.id in self._seen_topics:
                     continue
@@ -144,12 +167,11 @@ class RutrackerCrawler:
             if self.options.include_images and details.first_image_url:
                 details.first_image_ascii = await self._fetch_ascii(client, details.first_image_url)
             self.storage.upsert_topic_details(details)
-            magnet_mark = "🧲" if details.magnet else "▫️"
-            await self._log(f"{magnet_mark} W{worker_id}: {details.title[:80]}")
+            await self._log(f"topic W{worker_id}: {details.title[:80]}")
         except httpx.HTTPStatusError as exc:
-            await self._log(f"⚠️ W{worker_id}: topic {topic.id} не разобран: {_http_error_message(exc)}")
+            await self._log(f"topic W{worker_id}: {topic.id} skipped, {_http_error_message(exc)}")
         except Exception as exc:
-            await self._log(f"⚠️ W{worker_id}: topic {topic.id} не разобран: {exc}")
+            await self._log(f"topic W{worker_id}: {topic.id} skipped, {type(exc).__name__}: {exc}")
 
     async def _login(self, client: httpx.AsyncClient) -> None:
         await self._log("🔐 Пробую авторизоваться")
@@ -192,13 +214,13 @@ class RutrackerCrawler:
                 if not _retryable_status(status_code) or attempt >= self.options.retries:
                     raise
                 await self._log(
-                    f"⏳ HTTP {status_code} на {url}; повтор {attempt + 1}/{self.options.retries}"
+                    f"retry {attempt + 1}/{self.options.retries}: HTTP {status_code}"
                 )
             except httpx.HTTPError as exc:
                 last_error = exc
                 if attempt >= self.options.retries:
                     raise
-                await self._log(f"⏳ Сеть капризничает: {exc}; повтор {attempt + 1}/{self.options.retries}")
+                await self._log(f"retry {attempt + 1}/{self.options.retries}: {type(exc).__name__}")
             await asyncio.sleep(self.options.retry_backoff * (attempt + 1))
         if last_error:
             raise last_error
@@ -210,6 +232,27 @@ class RutrackerCrawler:
         result = self.log(message)
         if asyncio.iscoroutine(result):
             await result
+
+    def _forum_progress(
+        self,
+        forum: Forum,
+        forum_index: int,
+        total_forums: int,
+        page_index: int,
+        state: str,
+    ) -> str:
+        percent = forum_index / max(total_forums, 1) * 100
+        category = forum.category or "Прочее"
+        return (
+            f"progress {forum_index}/{total_forums} {percent:.1f}% | "
+            f"{category} / {forum.title} | page {page_index} | {state} | elapsed {self._elapsed()}"
+        )
+
+    def _elapsed(self) -> str:
+        seconds = int(time.monotonic() - self._started_at)
+        hours, remainder = divmod(seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
 def options_from_env(db_path: Path, base_url: str, workers: int, delay: float) -> SyncOptions:
@@ -231,7 +274,7 @@ def _http_error_message(exc: httpx.HTTPStatusError) -> str:
     status_code = exc.response.status_code
     url = str(exc.request.url)
     if status_code == 521:
-        return f"HTTP 521 — сайт/Cloudflare временно не принимает запрос ({url})"
+        return f"HTTP 521 ({url})"
     if status_code == 429:
-        return f"HTTP 429 — rate limit, увеличь --delay и уменьши --workers ({url})"
-    return f"HTTP {status_code} при загрузке {url}"
+        return f"HTTP 429 rate limit ({url})"
+    return f"HTTP {status_code} ({url})"

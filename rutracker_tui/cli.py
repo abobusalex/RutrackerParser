@@ -169,7 +169,7 @@ async def _sync(args: argparse.Namespace, exit_on_error: bool) -> bool:
             raise
         return False
     except httpx.HTTPError as exc:
-        _print(f"🌧️ Сеть не ответила нормально: {_network_error_message(exc)}")
+        _print(f"network error: {_network_error_message(exc)}")
         if exit_on_error:
             raise
         return False
@@ -318,9 +318,9 @@ async def _doctor(args: argparse.Namespace) -> None:
             response = await client.get(args.base_url.rstrip("/") + "/index.php")
             _print(f"🌐 {args.base_url} -> HTTP {response.status_code}")
             if response.status_code == 521:
-                _print("🧱 521 обычно значит, что origin/Cloudflare сейчас не пускает запросы. Попробуй позже, VPN/proxy или меньший rate.")
+                _print("HTTP 521: index недоступен")
     except httpx.HTTPError as exc:
-        _print(f"🌧️ Network error: {_network_error_message(exc)}")
+        _print(f"network error: {_network_error_message(exc)}")
 
 
 def _sync_options(args: argparse.Namespace) -> SyncOptions:
@@ -366,14 +366,9 @@ def _friendly_http_error(exc: httpx.HTTPStatusError) -> str:
     status_code = exc.response.status_code
     url = str(exc.request.url)
     if status_code == 521:
-        return (
-            "🧱 RuTracker вернул HTTP 521: сервер/Cloudflare сейчас не принимает запрос. "
-            f"URL: {url}\n"
-            "Что делать: попробовать позже, уменьшить --workers, увеличить --delay, "
-            "проверить VPN/proxy или открыть сайт в браузере."
-        )
+        return f"HTTP 521: index недоступен ({url})"
     if status_code == 429:
-        return f"🐢 HTTP 429 rate limit на {url}: увеличь --delay и уменьши --workers."
+        return f"HTTP 429: rate limit ({url})"
     return f"⚠️ HTTP {status_code} при загрузке {url}: {exc}"
 
 
