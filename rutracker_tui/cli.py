@@ -61,7 +61,7 @@ def main(argv: list[str] | None = None) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = SafeArgumentParser(
         prog="rutracker-tui",
-        description="🧲 RuTracker TUI: локальный слепок форума, поиск, фильтры и синхронизация.",
+        description="RuTracker TUI: локальный слепок форума, поиск, фильтры и синхронизация.",
     )
     _add_common_options(parser)
     _add_sync_options(parser)
@@ -70,7 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command", parser_class=SafeArgumentParser)
 
-    run_parser = subparsers.add_parser("run", help="🚀 Умный запуск: sync если база пустая, затем TUI")
+    run_parser = subparsers.add_parser("run", help="Умный запуск: sync если база пустая, затем TUI")
     _add_common_options(run_parser, suppress_defaults=True)
     _add_sync_options(run_parser, suppress_defaults=True)
     run_parser.add_argument(
@@ -86,11 +86,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="После auto-sync не открывать TUI",
     )
 
-    sync_parser = subparsers.add_parser("sync", help="🌊 Синхронизировать форум в локальную SQLite-базу")
+    sync_parser = subparsers.add_parser("sync", help="Синхронизировать форум в локальную SQLite-базу")
     _add_common_options(sync_parser, suppress_defaults=True)
     _add_sync_options(sync_parser, suppress_defaults=True)
 
-    search_parser = subparsers.add_parser("search", help="🔎 Искать по локальной базе")
+    search_parser = subparsers.add_parser("search", help="Искать по локальной базе")
     _add_common_options(search_parser, suppress_defaults=True)
     search_parser.add_argument("query", nargs="?", default="", help="Текст запроса")
     search_parser.add_argument("--min-seeders", type=int, help="Минимум сидов")
@@ -100,33 +100,33 @@ def build_parser() -> argparse.ArgumentParser:
     search_parser.add_argument("--json", action="store_true", help="Вывести JSON вместо таблицы")
     search_parser.add_argument("--offline", action="store_true", help="Не синхронизировать пустую базу перед поиском")
 
-    show_parser = subparsers.add_parser("show", help="🧾 Показать карточку раздачи по topic id")
+    show_parser = subparsers.add_parser("show", help="Показать карточку раздачи по topic id")
     _add_common_options(show_parser, suppress_defaults=True)
     show_parser.add_argument("topic_id", type=int)
     show_parser.add_argument("--json", action="store_true")
 
-    files_parser = subparsers.add_parser("files", help="📁 Показать файлы раздачи по topic id")
+    files_parser = subparsers.add_parser("files", help="Показать файлы раздачи по topic id")
     _add_common_options(files_parser, suppress_defaults=True)
     files_parser.add_argument("topic_id", type=int)
     files_parser.add_argument("--json", action="store_true")
 
-    magnet_parser = subparsers.add_parser("magnet", help="🧲 Напечатать magnet-ссылку по topic id")
+    magnet_parser = subparsers.add_parser("magnet", help="Напечатать magnet-ссылку по topic id")
     _add_common_options(magnet_parser, suppress_defaults=True)
     magnet_parser.add_argument("topic_id", type=int)
 
-    forums_parser = subparsers.add_parser("forums", help="🗺️ Показать индексированные форумы")
+    forums_parser = subparsers.add_parser("forums", help="Показать индексированные форумы")
     _add_common_options(forums_parser, suppress_defaults=True)
     forums_parser.add_argument("--limit", type=int, default=50)
     forums_parser.add_argument("--json", action="store_true")
 
-    stats_parser = subparsers.add_parser("stats", help="📊 Статистика локального слепка")
+    stats_parser = subparsers.add_parser("stats", help="Статистика локального слепка")
     _add_common_options(stats_parser, suppress_defaults=True)
     stats_parser.add_argument("--json", action="store_true")
 
-    doctor_parser = subparsers.add_parser("doctor", help="🩺 Проверить базу и доступность сайта")
+    doctor_parser = subparsers.add_parser("doctor", help="Проверить базу и доступность сайта")
     _add_common_options(doctor_parser, suppress_defaults=True)
 
-    db_path_parser = subparsers.add_parser("db-path", help="💾 Показать путь к SQLite-базе")
+    db_path_parser = subparsers.add_parser("db-path", help="Показать путь к SQLite-базе")
     _add_common_options(db_path_parser, suppress_defaults=True)
 
     return parser
