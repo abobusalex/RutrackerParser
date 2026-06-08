@@ -11,6 +11,7 @@ class StorageTest(unittest.TestCase):
         with TemporaryDirectory() as temp_dir:
             storage = Storage(Path(temp_dir) / "test.sqlite3")
             try:
+                self.assertTrue(storage.is_empty())
                 storage.upsert_forums([Forum(id=1, title="Linux", url="https://example.test/f=1")])
                 storage.upsert_topic_summaries(
                     [
@@ -30,6 +31,10 @@ class StorageTest(unittest.TestCase):
                 self.assertEqual(len(rows), 1)
                 self.assertEqual(rows[0]["id"], 42)
                 self.assertEqual(rows[0]["forum_title"], "Linux")
+                self.assertFalse(storage.is_empty())
+                forums = storage.list_forums()
+                self.assertEqual(forums[0]["id"], 1)
+                self.assertEqual(forums[0]["indexed_topics"], 1)
             finally:
                 storage.close()
 

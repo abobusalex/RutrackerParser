@@ -30,6 +30,8 @@ class SyncOptions:
     include_images: bool = True
     username: str | None = None
     password: str | None = None
+    retries: int = 3
+    retry_backoff: float = 2.0
 
 
 class RutrackerCrawler:
@@ -95,8 +97,11 @@ class RutrackerCrawler:
             await self._log(f"📚 {forum.title}: {url}")
             try:
                 html = await self._fetch_text(client, url)
+            except httpx.HTTPStatusError as exc:
+                await self._log(f"⚠️ Форум пропущен: {_http_error_message(exc)}")
+                continue
             except httpx.HTTPError as exc:
-                await self._log(f"⚠️ Форум пропущен: {exc}")
+                await self._log(f"⚠️ Форум пропущен из-за сетевой ошибки: {exc}")
                 continue
             pages = parse_pagination_urls(html, self.options.base_url)
             for page in pages:
@@ -141,6 +146,8 @@ class RutrackerCrawler:
             self.storage.upsert_topic_details(details)
             magnet_mark = "🧲" if details.magnet else "▫️"
             await self._log(f"{magnet_mark} W{worker_id}: {details.title[:80]}")
+        except httpx.HTTPStatusError as exc:
+            await self._log(f"⚠️ W{worker_id}: topic {topic.id} не разобран: {_http_error_message(exc)}")
         except Exception as exc:
             await self._log(f"⚠️ W{worker_id}: topic {topic.id} не разобран: {exc}")
 
@@ -157,15 +164,13 @@ class RutrackerCrawler:
         await self._log("✅ Авторизация отправлена")
 
     async def _fetch_text(self, client: httpx.AsyncClient, url: str) -> str:
-        response = await client.get(url)
-        response.raise_for_status()
+        response = await self._get_with_retries(client, url)
         response.encoding = response.encoding or "utf-8"
         return response.text
 
     async def _fetch_ascii(self, client: httpx.AsyncClient, url: str) -> str | None:
         try:
-            response = await client.get(url)
-            response.raise_for_status()
+            response = await self._get_with_retries(client, url)
             content_type = response.headers.get("content-type", "")
             if "image" not in content_type:
                 return None
@@ -173,6 +178,31 @@ class RutrackerCrawler:
         except Exception as exc:
             await self._log(f"🖼️ ASCII не получился: {exc}")
             return None
+
+    async def _get_with_retries(self, client: httpx.AsyncClient, url: str) -> httpx.Response:
+        last_error: Exception | None = None
+        for attempt in range(self.options.retries + 1):
+            try:
+                response = await client.get(url)
+                response.raise_for_status()
+                return response
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                status_code = exc.response.status_code
+                if not _retryable_status(status_code) or attempt >= self.options.retries:
+                    raise
+                await self._log(
+                    f"⏳ HTTP {status_code} на {url}; повтор {attempt + 1}/{self.options.retries}"
+                )
+            except httpx.HTTPError as exc:
+                last_error = exc
+                if attempt >= self.options.retries:
+                    raise
+                await self._log(f"⏳ Сеть капризничает: {exc}; повтор {attempt + 1}/{self.options.retries}")
+            await asyncio.sleep(self.options.retry_backoff * (attempt + 1))
+        if last_error:
+            raise last_error
+        raise RuntimeError(f"Не удалось загрузить {url}")
 
     async def _log(self, message: str) -> None:
         if self.log is None:
@@ -191,3 +221,17 @@ def options_from_env(db_path: Path, base_url: str, workers: int, delay: float) -
         username=os.getenv("RUTRACKER_USERNAME"),
         password=os.getenv("RUTRACKER_PASSWORD"),
     )
+
+
+def _retryable_status(status_code: int) -> bool:
+    return status_code in {408, 409, 425, 429, 500, 502, 503, 504, 521, 522, 523, 524}
+
+
+def _http_error_message(exc: httpx.HTTPStatusError) -> str:
+    status_code = exc.response.status_code
+    url = str(exc.request.url)
+    if status_code == 521:
+        return f"HTTP 521 — сайт/Cloudflare временно не принимает запрос ({url})"
+    if status_code == 429:
+        return f"HTTP 429 — rate limit, увеличь --delay и уменьши --workers ({url})"
+    return f"HTTP {status_code} при загрузке {url}"

@@ -169,6 +169,8 @@ class RutrackerApp(App):
         )
         try:
             await crawler.run()
+        except Exception as exc:
+            self.call_later(self._log, f"⚠️ Синхронизация остановлена: {exc}")
         finally:
             await crawler.close()
         self.call_from_thread(self._refresh_results)

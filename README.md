@@ -16,8 +16,16 @@ Python-приложение для синхронизации публичных
 
 ```powershell
 py -m pip install -r requirements.txt
-py -m rutracker_tui tui
+py -m rutracker_tui
 ```
+
+По умолчанию приложение работает в умном режиме:
+
+- если локальная база пустая — сначала запускает синхронизацию;
+- если данные уже есть — сразу открывает TUI;
+- если сайт временно отвечает `521/429/5xx` — показывает понятную ошибку и не валится сырым traceback.
+
+## Команды
 
 Синхронизация:
 
@@ -29,6 +37,44 @@ py -m rutracker_tui sync --workers 8 --delay 0.7
 
 ```powershell
 py -m rutracker_tui search "linux iso" --min-seeders 5
+```
+
+Показать карточку темы:
+
+```powershell
+py -m rutracker_tui show 123456 --json
+```
+
+Показать файлы раздачи:
+
+```powershell
+py -m rutracker_tui files 123456
+```
+
+Напечатать magnet:
+
+```powershell
+py -m rutracker_tui magnet 123456
+```
+
+Список форумов и статистика:
+
+```powershell
+py -m rutracker_tui forums --limit 20
+py -m rutracker_tui stats --json
+```
+
+Диагностика базы и доступности сайта:
+
+```powershell
+py -m rutracker_tui doctor
+```
+
+Полная справка:
+
+```powershell
+py -m rutracker_tui --help
+py -m rutracker_tui search --help
 ```
 
 ## Авторизация

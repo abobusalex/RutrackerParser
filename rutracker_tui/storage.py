@@ -264,7 +264,30 @@ class Storage:
         )
 
     def get_topic(self, topic_id: int) -> sqlite3.Row | None:
-        return self._conn.execute("SELECT * FROM topics WHERE id = ?", (topic_id,)).fetchone()
+        return self._conn.execute(
+            """
+            SELECT topics.*, forums.title AS forum_title
+            FROM topics
+            LEFT JOIN forums ON forums.id = topics.forum_id
+            WHERE topics.id = ?
+            """,
+            (topic_id,),
+        ).fetchone()
+
+    def list_forums(self, limit: int = 100) -> list[sqlite3.Row]:
+        return list(
+            self._conn.execute(
+                """
+                SELECT forums.*, count(topics.id) AS indexed_topics
+                FROM forums
+                LEFT JOIN topics ON topics.forum_id = forums.id
+                GROUP BY forums.id
+                ORDER BY coalesce(forums.topics_count, indexed_topics, 0) DESC, forums.title
+                LIMIT ?
+                """,
+                (limit,),
+            )
+        )
 
     def topic_files(self, topic_id: int) -> list[TopicFile]:
         rows = self._conn.execute(
@@ -298,6 +321,10 @@ class Storage:
             """
         ).fetchone()
         return dict(row)
+
+    def is_empty(self) -> bool:
+        stats = self.stats()
+        return stats["forums"] == 0 and stats["topics"] == 0
 
 
 def _fts_query(query: str) -> str:
