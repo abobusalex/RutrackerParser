@@ -28,6 +28,38 @@ SIZE_RE = re.compile(
     re.IGNORECASE,
 )
 INT_RE = re.compile(r"\d+")
+SIZE_MULTIPLIERS = {
+    "b": 1,
+    "б": 1,
+    "kb": 1024,
+    "кб": 1024,
+    "kib": 1024,
+    "mb": 1024**2,
+    "мб": 1024**2,
+    "mib": 1024**2,
+    "gb": 1024**3,
+    "гб": 1024**3,
+    "gib": 1024**3,
+    "tb": 1024**4,
+    "тб": 1024**4,
+    "tib": 1024**4,
+}
+SIZE_UNIT_SCORE = {
+    "b": 0,
+    "б": 0,
+    "kb": 1,
+    "кб": 1,
+    "kib": 1,
+    "mb": 2,
+    "мб": 2,
+    "mib": 2,
+    "gb": 3,
+    "гб": 3,
+    "gib": 3,
+    "tb": 4,
+    "тб": 4,
+    "tib": 4,
+}
 MONTH_WORDS = (
     "янв|января|фев|февраля|мар|марта|апр|апреля|мая|май|июн|июня|июл|июля|"
     "авг|августа|сен|сентября|окт|октября|ноя|ноября|дек|декабря|"
@@ -76,24 +108,8 @@ def parse_size(value: str | None) -> tuple[str | None, int | None]:
         return None, None
     number = float(match.group("num").replace(",", "."))
     unit = match.group("unit").lower()
-    multipliers = {
-        "b": 1,
-        "б": 1,
-        "kb": 1024,
-        "кб": 1024,
-        "kib": 1024,
-        "mb": 1024**2,
-        "мб": 1024**2,
-        "mib": 1024**2,
-        "gb": 1024**3,
-        "гб": 1024**3,
-        "gib": 1024**3,
-        "tb": 1024**4,
-        "тб": 1024**4,
-        "tib": 1024**4,
-    }
     size_text = f"{match.group('num')} {match.group('unit')}"
-    return size_text, int(number * multipliers[unit])
+    return size_text, int(number * SIZE_MULTIPLIERS[unit])
 
 
 def extract_date_hint(text: str) -> str | None:
@@ -144,10 +160,10 @@ def parse_forum_topics(html: str, forum_id: int | None, base_url: str = BASE_URL
             continue
         row = link.find_parent("tr")
         row_text = text_of(row)
-        size_text, size_bytes = parse_size(row_text)
+        size_text, size_bytes = _row_size(row, title)
         seeders = _class_int(row, ("seed", "seedmed", "seedmedu")) if row else None
         leechers = _class_int(row, ("leech", "leechmed", "leechmedu")) if row else None
-        downloads = _class_int(row, ("compl", "complete", "dl")) if row else None
+        downloads = _class_int(row, ("compl", "complete")) if row else None
         topics[topic_id] = TopicSummary(
             id=topic_id,
             forum_id=forum_id,
@@ -192,8 +208,8 @@ def parse_topic_details(
     all_text = text_of(soup)
     magnet = _magnet(soup)
     first_image = _first_image(first_post or soup, base_url)
-    size_text, size_bytes = parse_size(all_text)
     files = _files(soup)
+    size_text, size_bytes = _topic_size(soup, files)
 
     return TopicDetails(
         id=topic_id,
@@ -207,7 +223,7 @@ def parse_topic_details(
         size_bytes=size_bytes,
         seeders=_class_int(soup, ("seed", "seedmed", "seedmedu")),
         leechers=_class_int(soup, ("leech", "leechmed", "leechmedu")),
-        downloads=_class_int(soup, ("compl", "complete", "dl")),
+        downloads=_class_int(soup, ("compl", "complete")),
         first_image_url=first_image,
         files=files,
         is_sticky=is_sticky,
@@ -308,6 +324,68 @@ def _files(soup: BeautifulSoup) -> list[TopicFile]:
             if path:
                 found.append(TopicFile(path=path, size_text=size_text, size_bytes=size_bytes, order_index=len(found)))
     return found
+
+
+def _row_size(row: Tag | None, title: str) -> tuple[str | None, int | None]:
+    if row is None:
+        return None, None
+    candidates: list[tuple[str, int, int]] = []
+    for cell in row.select("td, th"):
+        cell_text = text_of(cell)
+        if not cell_text or title in cell_text:
+            continue
+        candidates.extend(_size_candidates(cell_text))
+    if not candidates:
+        candidates = _size_candidates(text_of(row))
+    return _best_size(candidates)
+
+
+def _topic_size(soup: BeautifulSoup, files: list[TopicFile]) -> tuple[str | None, int | None]:
+    known_sizes = [item.size_bytes for item in files if item.size_bytes is not None]
+    if known_sizes:
+        total = sum(known_sizes)
+        return _format_size(total), total
+    candidates: list[tuple[str, int, int]] = []
+    for selector in (".post_body", "td.message", "#topic_main", ".topic"):
+        candidates.extend(_size_candidates(text_of(soup.select_one(selector))))
+    return _best_size(candidates)
+
+
+def _size_candidates(value: str | None) -> list[tuple[str, int, int]]:
+    if not value:
+        return []
+    normalized = value.replace("\xa0", " ")
+    candidates: list[tuple[str, int, int]] = []
+    for match in SIZE_RE.finditer(normalized):
+        number = float(match.group("num").replace(",", "."))
+        unit = match.group("unit").lower()
+        size_text = f"{match.group('num')} {match.group('unit')}"
+        size_bytes = int(number * SIZE_MULTIPLIERS[unit])
+        candidates.append((size_text, size_bytes, SIZE_UNIT_SCORE[unit]))
+    return candidates
+
+
+def _best_size(candidates: list[tuple[str, int, int]]) -> tuple[str | None, int | None]:
+    if not candidates:
+        return None, None
+    preferred = [item for item in candidates if item[2] >= 2]
+    pool = preferred or [item for item in candidates if item[2] >= 1] or candidates
+    size_text, size_bytes, _ = max(pool, key=lambda item: (item[2], item[1]))
+    return size_text, size_bytes
+
+
+def _format_size(size_bytes: int) -> str:
+    units = ("B", "KB", "MB", "GB", "TB")
+    value = float(size_bytes)
+    unit_index = 0
+    while value >= 1024 and unit_index < len(units) - 1:
+        value /= 1024
+        unit_index += 1
+    formatted = f"{value:.2f}" if value < 10 and unit_index > 0 else f"{value:.1f}"
+    formatted = formatted.rstrip("0").rstrip(".")
+    if unit_index == 0:
+        formatted = str(int(round(value)))
+    return f"{formatted} {units[unit_index]}"
 
 
 def _registered_at(text: str) -> str | None:

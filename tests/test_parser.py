@@ -30,6 +30,17 @@ class ParserTest(unittest.TestCase):
         self.assertEqual(topics[0].size_text, "4.7 GB")
         self.assertTrue(topics[0].is_sticky)
 
+    def test_parse_forum_topics_prefers_real_size_over_year(self):
+        html = """
+        <tr>
+          <td><a href="viewtopic.php?t=77">Фильм [2025, драма, WEBRip]</a></td>
+          <td class="seedmed">12</td>
+          <td>36,1 Mb</td>
+        </tr>
+        """
+        topics = parse_forum_topics(html, forum_id=10)
+        self.assertEqual(topics[0].size_text, "36,1 Mb")
+
     def test_date_parser_does_not_mix_nicknames(self):
         html = """
         <tr>

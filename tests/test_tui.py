@@ -95,19 +95,29 @@ class TuiStateTest(unittest.TestCase):
             finally:
                 app.storage.close()
 
-    def test_details_show_magnet_second_line_ascii_and_link(self):
+    def test_banner_shows_title_and_single_line_magnet(self):
+        with TemporaryDirectory() as temp_dir:
+            app = _app_with_topics(Path(temp_dir) / "test.sqlite3")
+            try:
+                app.refresh_results()
+                text = app._selected_banner_text()
+                lines = text.splitlines()
+                self.assertEqual(lines[0], "🎬 Ubuntu ISO")
+                self.assertEqual(lines[1], "🧲 magnet:?xt=urn:btih:test0")
+            finally:
+                app.storage.close()
+
+    def test_details_show_link_ascii_and_hide_downloads(self):
         with TemporaryDirectory() as temp_dir:
             app = _app_with_topics(Path(temp_dir) / "test.sqlite3")
             try:
                 app.refresh_results()
                 text = app._details_text()
-                lines = text.splitlines()
-                self.assertEqual(lines[0], "Ubuntu ISO")
-                self.assertEqual(lines[1], "magnet: magnet:?xt=urn:btih:test0")
                 self.assertIn("link: https://example.test/t=1000", text)
                 self.assertIn("ascii:", text)
                 self.assertIn("@@", text)
                 self.assertNotIn("id:", text)
+                self.assertNotIn("downloads:", text)
             finally:
                 app.storage.close()
 
@@ -130,7 +140,7 @@ class TuiStateTest(unittest.TestCase):
                 app.refresh_results()
                 app.open_fullscreen()
                 self.assertTrue(app.fullscreen)
-                self.assertIn("magnet: magnet:?xt=urn:btih:test0", app._full_details_text())
+                self.assertIn("🧲 magnet:?xt=urn:btih:test0", app._selected_banner_text())
                 app.scroll_details(1)
                 self.assertEqual(app.detail_scroll, 1)
                 app.close_fullscreen()

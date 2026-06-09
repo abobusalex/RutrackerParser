@@ -65,7 +65,7 @@ class RutrackerApp:
         self.detail_scroll = 0
         self.search_field = TextArea(
             height=1,
-            prompt="search> ",
+            prompt="🔎 search> ",
             multiline=False,
             accept_handler=self._submit_search,
         )
@@ -73,6 +73,7 @@ class RutrackerApp:
         self.topic_control = FormattedTextControl(self._topics_text, focusable=True)
         self.detail_control = FormattedTextControl(self._details_text, focusable=True)
         self.fullscreen_control = FormattedTextControl(self._full_details_text, focusable=True)
+        self.banner_control = FormattedTextControl(self._selected_banner_text)
         self.app: Application[None] | None = None
 
     @property
@@ -217,6 +218,8 @@ class RutrackerApp:
             [
                 Window(FormattedTextControl(self._header_text), height=3),
                 self.search_field,
+                Window(height=1, char="─"),
+                Window(self.banner_control, height=2, wrap_lines=False),
                 Window(height=1, char="─"),
                 body,
                 Window(height=1, char="─"),
@@ -414,22 +417,28 @@ class RutrackerApp:
             spinner = SPINNER[self.spinner_index]
             branch = self.sync_branch or "index"
             return HTML(
-                f"<b>RuTracker</b>  {spinner} {self.sync_percent:5.1f}% {_progress_bar(self.sync_percent)}  "
+                f"<b>RuTracker</b>  🌊 {spinner} {self.sync_percent:5.1f}% {_progress_bar(self.sync_percent)}  "
                 f"elapsed {self.sync_elapsed}\n"
-                f"{branch}\n{self.sync_state}"
+                f"📚 {branch}\n⚙️ {self.sync_state}"
             )
         category = self.categories[self.category_index]["category"] if self.categories else ALL_CATEGORIES
         filters = []
         if self.query:
-            filters.append(f"query={self.query}")
-        filters.append(f"sort={SORTS[self.sort_code][1]}")
+            filters.append(f"🔎 query={self.query}")
+        filters.append(f"📈 sort={SORTS[self.sort_code][1]}")
         filters.append("desc" if self.sort_desc else "asc")
         return HTML(
-            f"<b>RuTracker</b>  category {self.category_index + 1}/{len(self.categories)}: {category}  |  "
+            f"<b>RuTracker</b>  📚 category {self.category_index + 1}/{len(self.categories)}: {category}  |  "
             f"page {self.current_page}/{self.total_pages}  |  rows {len(self.rows)}\n"
             f"{' | '.join(filters)}\n"
-            f"active: {'categories' if self.active_pane == 'categories' else 'topics'}"
+            f"🧭 active: {'categories' if self.active_pane == 'categories' else 'topics'}"
         )
+
+    def _selected_banner_text(self) -> str:
+        row = self._selected_row()
+        if row is None:
+            return "🎬 выбери раздачу\n🧲 magnet появится здесь"
+        return f"🎬 {row['title']}\n🧲 {row['magnet'] or '-'}"
 
     def _categories_text(self) -> list[tuple[str, str]]:
         fragments: list[tuple[str, str]] = [("class:header", "№  Категория              ∑\n")]
@@ -483,14 +492,10 @@ class RutrackerApp:
         if ascii_art and not full:
             ascii_art = "\n".join(ascii_art.splitlines()[:10])
         parts = [
-            str(row["title"]),
-            f"magnet: {row['magnet'] or '-'}",
-            "",
             f"link: {row['url']}",
             f"forum: {row['forum_title'] or '-'}",
             f"category: {row['forum_category'] or '-'}",
             f"seeds: {row['seeders'] or 0}  leech: {row['leechers'] or 0}",
-            f"downloads: {row['downloads'] or 0}",
             f"size: {row['size_text'] or '-'}",
             f"date: {date or '-'}",
             f"pinned: {'yes' if row['is_sticky'] else 'no'}",
