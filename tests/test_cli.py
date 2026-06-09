@@ -1,6 +1,9 @@
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
+from rutracker_tui import cli
 from rutracker_tui.cli import build_parser
 
 
@@ -39,6 +42,14 @@ class CliParserTest(unittest.TestCase):
         self.assertEqual(args.sort, "10")
         self.assertEqual(args.category, "Аниме")
         self.assertTrue(args.asc)
+
+    def test_run_opens_tui_without_cli_sync(self):
+        with TemporaryDirectory() as temp_dir:
+            args = build_parser().parse_args(["--db", str(Path(temp_dir) / "empty.sqlite3")])
+            with patch("rutracker_tui.cli._sync") as sync, patch("rutracker_tui.tui.RutrackerApp.run") as tui_run:
+                cli._run(args)
+            sync.assert_not_called()
+            tui_run.assert_called_once()
 
 
 if __name__ == "__main__":

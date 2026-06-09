@@ -56,9 +56,28 @@ MONTH_WORDS_RE = (
 
 
 class RutrackerApp:
-    def __init__(self, db_path: Path = default_db_path(), base_url: str = BASE_URL):
+    def __init__(
+        self,
+        db_path: Path = default_db_path(),
+        base_url: str = BASE_URL,
+        auto_sync: bool = True,
+        sync_workers: int = 8,
+        sync_delay: float = 0.7,
+        max_forums: int | None = None,
+        max_topics: int | None = None,
+        include_images: bool = True,
+        retries: int = 2,
+        retry_backoff: float = 2.0,
+    ):
         self.db_path = db_path
         self.base_url = base_url
+        self.auto_sync = auto_sync
+        self.sync_delay = sync_delay
+        self.max_forums = max_forums
+        self.max_topics = max_topics
+        self.include_images = include_images
+        self.retries = retries
+        self.retry_backoff = retry_backoff
         self.storage: Storage | None = None
         self.rows: list[Any] = []
         self.categories: list[dict[str, Any]] = [{"category": ALL_CATEGORIES, "topics": 0, "forums": 0}]
@@ -78,7 +97,7 @@ class RutrackerApp:
         self.sync_branch = ""
         self.sync_state = ""
         self.sync_started_at: float | None = None
-        self.sync_workers = 8
+        self.sync_workers = sync_workers
         self.sync_active = 0
         self.sync_queued = 0
         self.sync_saved = 0
@@ -119,7 +138,9 @@ class RutrackerApp:
         self.storage = Storage(self.db_path)
         try:
             self.refresh_results(reset_selection=True)
-            self._build_application().run()
+            self._build_application()
+            if self.app:
+                self.app.run()
         finally:
             if self.storage:
                 self.storage.close()
@@ -259,6 +280,8 @@ class RutrackerApp:
             output=output,
             input=input,
         )
+        if self._should_auto_sync():
+            self.app.pre_run_callables.append(self._start_initial_sync)
         return self.app
 
     def _key_bindings(self) -> KeyBindings:
@@ -379,6 +402,14 @@ class RutrackerApp:
         self.switch_pane("topics")
         return True
 
+    def _should_auto_sync(self) -> bool:
+        return bool(self.auto_sync and self.storage and self.storage.is_empty())
+
+    def _start_initial_sync(self) -> None:
+        if self.app and not self.syncing:
+            self.log("empty database: sync starts in TUI")
+            self.app.create_background_task(self._sync())
+
     async def _sync(self) -> None:
         self.syncing = True
         self.sync_started_at = time.monotonic()
@@ -393,17 +424,20 @@ class RutrackerApp:
         self.sync_failed = 0
         self.log("sync started")
         animation_task = asyncio.create_task(self._animate_sync())
-        options = options_from_env(self.db_path, self.base_url, workers=self.sync_workers, delay=0.7)
+        options = options_from_env(self.db_path, self.base_url, workers=self.sync_workers, delay=self.sync_delay)
         crawler = RutrackerCrawler(
             SyncOptions(
                 db_path=options.db_path,
                 base_url=options.base_url,
                 workers=options.workers,
                 delay=options.delay,
+                max_forums=self.max_forums,
+                max_topics=self.max_topics,
+                include_images=self.include_images,
                 username=options.username,
                 password=options.password,
-                retries=2,
-                retry_backoff=2.0,
+                retries=self.retries,
+                retry_backoff=self.retry_backoff,
             ),
             log=self.log,
         )

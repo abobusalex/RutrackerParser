@@ -65,25 +65,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_common_options(parser)
     _add_sync_options(parser)
-    parser.add_argument("--no-auto-sync", action="store_true", help="Не запускать sync автоматически при пустой базе")
-    parser.add_argument("--no-tui", action="store_true", help="После auto-sync не открывать TUI")
+    parser.add_argument("--no-auto-sync", action="store_true", help="Не запускать фоновый sync при пустой базе")
+    parser.add_argument("--no-tui", action="store_true", help="Запустить sync без TUI")
 
     subparsers = parser.add_subparsers(dest="command", parser_class=SafeArgumentParser)
 
-    run_parser = subparsers.add_parser("run", help="Умный запуск: sync если база пустая, затем TUI")
+    run_parser = subparsers.add_parser("run", help="Открыть TUI; sync стартует внутри, если база пустая")
     _add_common_options(run_parser, suppress_defaults=True)
     _add_sync_options(run_parser, suppress_defaults=True)
     run_parser.add_argument(
         "--no-auto-sync",
         action="store_true",
         default=argparse.SUPPRESS,
-        help="Не запускать sync автоматически при пустой базе",
+        help="Не запускать фоновый sync при пустой базе",
     )
     run_parser.add_argument(
         "--no-tui",
         action="store_true",
         default=argparse.SUPPRESS,
-        help="После auto-sync не открывать TUI",
+        help="Запустить sync без TUI",
     )
 
     sync_parser = subparsers.add_parser("sync", help="Синхронизировать форум в локальную SQLite-базу")
@@ -142,19 +142,26 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _run(args: argparse.Namespace) -> None:
-    if _database_is_empty(args.db) and not args.no_auto_sync:
-        _print("🪹 База пустая — сначала подтягиваю форум, потом открою TUI.")
-        synced = asyncio.run(_sync(args, exit_on_error=False))
-        if not synced:
-            _print("🫧 Синхронизация не удалась, но TUI всё равно откроется с тем, что уже есть.")
-
     if args.no_tui:
+        if _database_is_empty(args.db) and not args.no_auto_sync:
+            asyncio.run(_sync(args, exit_on_error=False))
         _stats(args)
         return
 
     from .tui import RutrackerApp
 
-    RutrackerApp(db_path=args.db, base_url=args.base_url).run()
+    RutrackerApp(
+        db_path=args.db,
+        base_url=args.base_url,
+        auto_sync=not args.no_auto_sync,
+        sync_workers=args.workers,
+        sync_delay=args.delay,
+        max_forums=args.max_forums,
+        max_topics=args.max_topics,
+        include_images=not args.no_images,
+        retries=args.retries,
+        retry_backoff=args.retry_backoff,
+    ).run()
 
 
 async def _sync(args: argparse.Namespace, exit_on_error: bool) -> bool:

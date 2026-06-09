@@ -78,6 +78,26 @@ class TuiStateTest(unittest.TestCase):
             application = app._build_application(output=DummyOutput())
             self.assertIsNotNone(application.layout)
 
+    def test_empty_database_schedules_initial_sync_inside_tui(self):
+        with TemporaryDirectory() as temp_dir:
+            app = RutrackerApp(db_path=Path(temp_dir) / "empty.sqlite3", auto_sync=True)
+            app.storage = Storage(app.db_path)
+            try:
+                application = app._build_application(output=DummyOutput())
+                self.assertGreaterEqual(len(application.pre_run_callables), 1)
+            finally:
+                app.storage.close()
+
+    def test_auto_sync_can_be_disabled_for_tui(self):
+        with TemporaryDirectory() as temp_dir:
+            app = RutrackerApp(db_path=Path(temp_dir) / "empty.sqlite3", auto_sync=False)
+            app.storage = Storage(app.db_path)
+            try:
+                application = app._build_application(output=DummyOutput())
+                self.assertEqual(len(application.pre_run_callables), 0)
+            finally:
+                app.storage.close()
+
     def test_table_hotkeys_are_disabled_while_search_has_focus(self):
         with TemporaryDirectory() as temp_dir:
             app = RutrackerApp(db_path=Path(temp_dir) / "test.sqlite3")
