@@ -41,6 +41,29 @@ class ParserTest(unittest.TestCase):
         topics = parse_forum_topics(html, forum_id=10)
         self.assertEqual(topics[0].size_text, "36,1 Mb")
 
+    def test_parse_forum_topics_uses_rutracker_size_column(self):
+        html = """
+        <tr>
+          <td><a href="viewtopic.php?t=78">Аниме [2024, WEB-DL]</a></td>
+          <td>6144 kb</td>
+          <td class="vf-col-tor-size">2.74 GB</td>
+          <td class="seedmed">28</td>
+        </tr>
+        """
+        topics = parse_forum_topics(html, forum_id=10)
+        self.assertEqual(topics[0].size_text, "2.74 GB")
+
+    def test_parse_forum_topics_ignores_small_service_sizes(self):
+        html = """
+        <tr>
+          <td><a href="viewtopic.php?t=79">Аниме [2024, WEB-DL]</a></td>
+          <td>6144 kb</td>
+          <td class="seedmed">28</td>
+        </tr>
+        """
+        topics = parse_forum_topics(html, forum_id=10)
+        self.assertIsNone(topics[0].size_text)
+
     def test_date_parser_does_not_mix_nicknames(self):
         html = """
         <tr>
@@ -87,6 +110,19 @@ class ParserTest(unittest.TestCase):
         """
         details = parse_topic_details(html, "https://rutracker.org/forum/viewtopic.php?t=99")
         self.assertEqual(details.first_image_url, "https://rutracker.org/posters/cover.jpg")
+
+    def test_parse_topic_details_does_not_treat_random_tables_as_files(self):
+        html = """
+        <html>
+          <h1>Anime</h1>
+          <td class="message">Описание без списка файлов</td>
+          <table><tr><td>служебная строка 6144 kb</td></tr></table>
+          <a href="magnet:?xt=urn:btih:abc">magnet</a>
+        </html>
+        """
+        details = parse_topic_details(html, "https://rutracker.org/forum/viewtopic.php?t=100")
+        self.assertEqual(details.files, [])
+        self.assertIsNone(details.size_text)
 
 
 if __name__ == "__main__":

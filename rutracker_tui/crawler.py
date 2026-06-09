@@ -43,6 +43,10 @@ class RutrackerCrawler:
         self._seen_forum_pages: set[str] = set()
         self._seen_topics: set[int] = set()
         self._topic_count = 0
+        self._active_topics = 0
+        self._saved_topics = 0
+        self._skipped_topics = 0
+        self._failed_topics = 0
         self._started_at = time.monotonic()
 
     async def close(self) -> None:
@@ -149,10 +153,13 @@ class RutrackerCrawler:
     ) -> None:
         while True:
             topic = await queue.get()
+            self._active_topics += 1
             try:
                 await asyncio.sleep(self.options.delay)
                 await self._crawl_topic(client, topic, worker_id)
             finally:
+                self._active_topics = max(0, self._active_topics - 1)
+                await self._log(self._topic_progress(queue.qsize()))
                 queue.task_done()
 
     async def _crawl_topic(
@@ -171,15 +178,19 @@ class RutrackerCrawler:
                 is_sticky=topic.is_sticky,
             )
             if not details.magnet:
+                self._skipped_topics += 1
                 await self._log(f"topic W{worker_id}: no magnet, skipped | {details.title[:80]}")
                 return
             if self.options.include_images and details.first_image_url:
                 details.first_image_ascii = await self._fetch_ascii(client, details.first_image_url)
             self.storage.upsert_topic_details(details)
+            self._saved_topics += 1
             await self._log(f"topic W{worker_id}: saved magnet | {details.title[:80]}")
         except httpx.HTTPStatusError as exc:
+            self._failed_topics += 1
             await self._log(f"topic W{worker_id}: {topic.id} skipped, {_http_error_message(exc)}")
         except Exception as exc:
+            self._failed_topics += 1
             await self._log(f"topic W{worker_id}: {topic.id} skipped, {type(exc).__name__}: {exc}")
 
     async def _login(self, client: httpx.AsyncClient) -> None:
@@ -255,6 +266,12 @@ class RutrackerCrawler:
         return (
             f"progress {forum_index}/{total_forums} {percent:.1f}% | "
             f"{category} / {forum.title} | page {page_index} | {state} | elapsed {self._elapsed()}"
+        )
+
+    def _topic_progress(self, queued: int) -> str:
+        return (
+            f"topic-progress active={self._active_topics} queued={queued} "
+            f"saved={self._saved_topics} skipped={self._skipped_topics} failed={self._failed_topics}"
         )
 
     def _elapsed(self) -> str:

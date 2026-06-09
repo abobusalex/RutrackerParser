@@ -63,6 +63,15 @@ class TuiStateTest(unittest.TestCase):
         self.assertEqual(app.sync_branch, "Аниме / OVA")
         self.assertIn("3/286 1.0%", app.logs[-1])
 
+    def test_topic_progress_updates_sync_counters(self):
+        app = RutrackerApp()
+        app.log("topic-progress active=5 queued=42 saved=17 skipped=3 failed=1")
+        self.assertEqual(app.sync_active, 5)
+        self.assertEqual(app.sync_queued, 42)
+        self.assertEqual(app.sync_saved, 17)
+        self.assertEqual(app.sync_skipped, 3)
+        self.assertEqual(app.sync_failed, 1)
+
     def test_prompt_toolkit_application_builds(self):
         with TemporaryDirectory() as temp_dir:
             app = RutrackerApp(db_path=Path(temp_dir) / "test.sqlite3")

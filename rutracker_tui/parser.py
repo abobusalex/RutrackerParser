@@ -311,8 +311,6 @@ def _image_dimension(value: object) -> int:
 
 def _files(soup: BeautifulSoup) -> list[TopicFile]:
     containers = soup.select("#tor-filelist, .tor-filelist, .filelist, .files")
-    if not containers:
-        containers = soup.select("table")
     found: list[TopicFile] = []
     for container in containers:
         for row in container.select("tr, li"):
@@ -329,15 +327,22 @@ def _files(soup: BeautifulSoup) -> list[TopicFile]:
 def _row_size(row: Tag | None, title: str) -> tuple[str | None, int | None]:
     if row is None:
         return None, None
+    priority_candidates: list[tuple[str, int, int]] = []
     candidates: list[tuple[str, int, int]] = []
     for cell in row.select("td, th"):
         cell_text = text_of(cell)
         if not cell_text or title in cell_text:
             continue
-        candidates.extend(_size_candidates(cell_text))
+        cell_candidates = _size_candidates(cell_text)
+        if _looks_like_size_cell(cell):
+            priority_candidates.extend(cell_candidates)
+        else:
+            candidates.extend(cell_candidates)
+    if priority_candidates:
+        return _best_size(priority_candidates, allow_small=True)
     if not candidates:
         candidates = _size_candidates(text_of(row))
-    return _best_size(candidates)
+    return _best_size(candidates, allow_small=False)
 
 
 def _topic_size(soup: BeautifulSoup, files: list[TopicFile]) -> tuple[str | None, int | None]:
@@ -365,13 +370,23 @@ def _size_candidates(value: str | None) -> list[tuple[str, int, int]]:
     return candidates
 
 
-def _best_size(candidates: list[tuple[str, int, int]]) -> tuple[str | None, int | None]:
+def _best_size(candidates: list[tuple[str, int, int]], allow_small: bool = True) -> tuple[str | None, int | None]:
     if not candidates:
         return None, None
     preferred = [item for item in candidates if item[2] >= 2]
+    if not allow_small and not preferred:
+        return None, None
     pool = preferred or [item for item in candidates if item[2] >= 1] or candidates
     size_text, size_bytes, _ = max(pool, key=lambda item: (item[2], item[1]))
     return size_text, size_bytes
+
+
+def _looks_like_size_cell(cell: Tag) -> bool:
+    marker = " ".join(
+        str(cell.get(name, ""))
+        for name in ("class", "id", "headers", "data-title", "title")
+    ).lower()
+    return any(token in marker for token in ("size", "tor-size", "размер", "разм"))
 
 
 def _format_size(size_bytes: int) -> str:

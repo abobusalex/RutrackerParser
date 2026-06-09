@@ -43,6 +43,10 @@ PROGRESS_RE = re.compile(
     r"progress (?P<done>\d+)/(?P<total>\d+) (?P<percent>\d+(?:\.\d+)?)% \| "
     r"(?P<branch>.*?) \| page (?P<page>\d+) \| (?P<state>.*?) \| elapsed (?P<elapsed>\d{2}:\d{2}:\d{2})"
 )
+TOPIC_PROGRESS_RE = re.compile(
+    r"topic-progress active=(?P<active>\d+) queued=(?P<queued>\d+) "
+    r"saved=(?P<saved>\d+) skipped=(?P<skipped>\d+) failed=(?P<failed>\d+)"
+)
 MONTH_WORDS_RE = (
     "янв|января|фев|февраля|мар|марта|апр|апреля|мая|май|июн|июня|июл|июля|"
     "авг|августа|сен|сентября|окт|октября|ноя|ноября|дек|декабря|"
@@ -75,6 +79,11 @@ class RutrackerApp:
         self.sync_state = ""
         self.sync_started_at: float | None = None
         self.sync_workers = 8
+        self.sync_active = 0
+        self.sync_queued = 0
+        self.sync_saved = 0
+        self.sync_skipped = 0
+        self.sync_failed = 0
         self._last_live_refresh = 0.0
         self.fullscreen = False
         self.detail_scroll = 0
@@ -377,6 +386,11 @@ class RutrackerApp:
         self.sync_percent = 0.0
         self.sync_branch = ""
         self.sync_state = "starting"
+        self.sync_active = 0
+        self.sync_queued = 0
+        self.sync_saved = 0
+        self.sync_skipped = 0
+        self.sync_failed = 0
         self.log("sync started")
         animation_task = asyncio.create_task(self._animate_sync())
         options = options_from_env(self.db_path, self.base_url, workers=self.sync_workers, delay=0.7)
@@ -439,7 +453,10 @@ class RutrackerApp:
             return HTML(
                 f"<b>RuTracker</b>  🌊 {spinner} {self.sync_percent:5.1f}% {_progress_bar(self.sync_percent)}  "
                 f"elapsed {self.sync_elapsed}\n"
-                f"📚 {branch}\n⚙️ {self.sync_state} | 🧵 {self.sync_workers} | 🧲 {self.stats['magnets']} | 📁 {self.stats['files']}"
+                f"📚 {branch}\n"
+                f"⚙️ {self.sync_state} | 🧵 {self.sync_active}/{self.sync_workers} | "
+                f"📥 {self.sync_queued} | ✅ {self.sync_saved} | ⏭ {self.sync_skipped} | ⚠ {self.sync_failed} | "
+                f"🧲 {self.stats['magnets']} | 📁 {self.stats['files']}"
             )
         category = self.categories[self.category_index]["category"] if self.categories else ALL_CATEGORIES
         filters = []
@@ -571,12 +588,19 @@ class RutrackerApp:
 
     def _apply_progress(self, message: str) -> None:
         match = PROGRESS_RE.search(message)
-        if not match:
+        if match:
+            self.sync_percent = float(match.group("percent"))
+            self.sync_elapsed = match.group("elapsed")
+            self.sync_branch = match.group("branch")
+            self.sync_state = f"page {match.group('page')} | {match.group('state')}"
             return
-        self.sync_percent = float(match.group("percent"))
-        self.sync_elapsed = match.group("elapsed")
-        self.sync_branch = match.group("branch")
-        self.sync_state = f"page {match.group('page')} | {match.group('state')}"
+        topic_match = TOPIC_PROGRESS_RE.search(message)
+        if topic_match:
+            self.sync_active = int(topic_match.group("active"))
+            self.sync_queued = int(topic_match.group("queued"))
+            self.sync_saved = int(topic_match.group("saved"))
+            self.sync_skipped = int(topic_match.group("skipped"))
+            self.sync_failed = int(topic_match.group("failed"))
 
     def _invalidate(self) -> None:
         if self.app is None:

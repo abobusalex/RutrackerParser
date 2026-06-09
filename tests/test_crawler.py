@@ -30,6 +30,23 @@ class CrawlerTest(unittest.TestCase):
             finally:
                 crawler.storage.close()
 
+    def test_topic_progress_log_contains_worker_counters(self):
+        with TemporaryDirectory() as temp_dir:
+            crawler = RutrackerCrawler(SyncOptions(db_path=Path(temp_dir) / "test.sqlite3", base_url="https://example.test/"))
+            try:
+                crawler._active_topics = 3
+                crawler._saved_topics = 10
+                crawler._skipped_topics = 4
+                crawler._failed_topics = 2
+                message = crawler._topic_progress(queued=25)
+                self.assertIn("active=3", message)
+                self.assertIn("queued=25", message)
+                self.assertIn("saved=10", message)
+                self.assertIn("skipped=4", message)
+                self.assertIn("failed=2", message)
+            finally:
+                crawler.storage.close()
+
 
 if __name__ == "__main__":
     unittest.main()
