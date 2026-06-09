@@ -3,15 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from platformdirs import user_data_dir
-
 
 APP_NAME = "rutracker-tui"
 BASE_URL = "https://rutracker.org/forum/"
 
 
+def app_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
 def default_data_dir() -> Path:
-    return Path(user_data_dir(APP_NAME, appauthor=False))
+    return app_root() / "data"
 
 
 def default_db_path() -> Path:

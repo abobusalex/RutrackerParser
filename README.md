@@ -35,8 +35,12 @@ py -m rutracker_tui sync --workers 8 --delay 0.7
 py -m rutracker_tui search "linux" --magnet-only -o 10
 py -m rutracker_tui show 123456 --json
 py -m rutracker_tui magnet 123456
+py -m rutracker_tui db-path
 py -m rutracker_tui doctor
 ```
+
+По умолчанию SQLite-база лежит рядом с приложением: `data/rutracker.sqlite3`.
+Другой путь можно задать через `--db`.
 
 ## Управление TUI
 
