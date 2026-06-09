@@ -102,22 +102,37 @@ class TuiStateTest(unittest.TestCase):
                 app.refresh_results()
                 text = app._selected_banner_text()
                 lines = text.splitlines()
-                self.assertEqual(lines[0], "🎬 Ubuntu ISO")
+                self.assertEqual(lines[0], "💾 Ubuntu ISO")
                 self.assertEqual(lines[1], "🧲 magnet:?xt=urn:btih:test0")
             finally:
                 app.storage.close()
 
-    def test_details_show_link_ascii_and_hide_downloads(self):
+    def test_details_show_plain_url_and_compact_meta(self):
         with TemporaryDirectory() as temp_dir:
             app = _app_with_topics(Path(temp_dir) / "test.sqlite3")
             try:
                 app.refresh_results()
                 text = app._details_text()
-                self.assertIn("link: https://example.test/t=1000", text)
+                self.assertIn("https://example.test/t=1000", text)
+                self.assertNotIn("link:", text)
+                self.assertNotIn("forum:", text)
+                self.assertNotIn("category:", text)
+                self.assertIn("🌱 10 | 🪱 0 | 📦 - | 📅 - | 📌 no", text)
                 self.assertIn("ascii:", text)
                 self.assertIn("@@", text)
                 self.assertNotIn("id:", text)
                 self.assertNotIn("downloads:", text)
+            finally:
+                app.storage.close()
+
+    def test_categories_show_emojis(self):
+        with TemporaryDirectory() as temp_dir:
+            app = _app_with_topics(Path(temp_dir) / "test.sqlite3")
+            try:
+                app.refresh_results()
+                text = "".join(fragment for _, fragment in app._categories_text())
+                self.assertIn("🌐 Все", text)
+                self.assertIn("💾 Софт", text)
             finally:
                 app.storage.close()
 

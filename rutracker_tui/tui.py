@@ -26,6 +26,19 @@ MAX_ROWS = 500
 PAGE_SIZE = 18
 SPINNER = "|/-\\"
 ALL_CATEGORIES = "Все"
+CATEGORY_EMOJI = {
+    ALL_CATEGORIES: "🌐",
+    "Фильмы": "🎬",
+    "Аниме": "🎌",
+    "Сериалы": "📺",
+    "Игры": "🎮",
+    "Книги и журналы": "📚",
+    "Музыка": "🎵",
+    "Обучение": "🎓",
+    "Прочее": "🧩",
+    "Софт": "💾",
+    "Спорт": "🏅",
+}
 PROGRESS_RE = re.compile(
     r"progress (?P<done>\d+)/(?P<total>\d+) (?P<percent>\d+(?:\.\d+)?)% \| "
     r"(?P<branch>.*?) \| page (?P<page>\d+) \| (?P<state>.*?) \| elapsed (?P<elapsed>\d{2}:\d{2}:\d{2})"
@@ -61,6 +74,8 @@ class RutrackerApp:
         self.sync_branch = ""
         self.sync_state = ""
         self.sync_started_at: float | None = None
+        self.sync_workers = 8
+        self._last_live_refresh = 0.0
         self.fullscreen = False
         self.detail_scroll = 0
         self.search_field = TextArea(
@@ -358,12 +373,13 @@ class RutrackerApp:
     async def _sync(self) -> None:
         self.syncing = True
         self.sync_started_at = time.monotonic()
+        self._last_live_refresh = 0.0
         self.sync_percent = 0.0
         self.sync_branch = ""
         self.sync_state = "starting"
         self.log("sync started")
         animation_task = asyncio.create_task(self._animate_sync())
-        options = options_from_env(self.db_path, self.base_url, workers=4, delay=1.0)
+        options = options_from_env(self.db_path, self.base_url, workers=self.sync_workers, delay=0.7)
         crawler = RutrackerCrawler(
             SyncOptions(
                 db_path=options.db_path,
@@ -398,6 +414,10 @@ class RutrackerApp:
             self.spinner_index = (self.spinner_index + 1) % len(SPINNER)
             if self.sync_started_at is not None:
                 self.sync_elapsed = _format_elapsed(int(time.monotonic() - self.sync_started_at))
+            now = time.monotonic()
+            if now - self._last_live_refresh >= 1.0:
+                self._last_live_refresh = now
+                self.refresh_results()
             self._invalidate()
             await asyncio.sleep(0.12)
 
@@ -419,7 +439,7 @@ class RutrackerApp:
             return HTML(
                 f"<b>RuTracker</b>  🌊 {spinner} {self.sync_percent:5.1f}% {_progress_bar(self.sync_percent)}  "
                 f"elapsed {self.sync_elapsed}\n"
-                f"📚 {branch}\n⚙️ {self.sync_state}"
+                f"📚 {branch}\n⚙️ {self.sync_state} | 🧵 {self.sync_workers} | 🧲 {self.stats['magnets']} | 📁 {self.stats['files']}"
             )
         category = self.categories[self.category_index]["category"] if self.categories else ALL_CATEGORIES
         filters = []
@@ -438,13 +458,13 @@ class RutrackerApp:
         row = self._selected_row()
         if row is None:
             return "🎬 выбери раздачу\n🧲 magnet появится здесь"
-        return f"🎬 {row['title']}\n🧲 {row['magnet'] or '-'}"
+        return f"{self._category_emoji(row['forum_category'])} {row['title']}\n🧲 {row['magnet'] or '-'}"
 
     def _categories_text(self) -> list[tuple[str, str]]:
         fragments: list[tuple[str, str]] = [("class:header", "№  Категория              ∑\n")]
         for index, item in enumerate(self.categories):
             marker = ">" if index == self.category_index else " "
-            title = _truncate(item["category"], 19)
+            title = _truncate(f"{self._category_emoji(item['category'])} {item['category']}", 19)
             count = item.get("topics", 0)
             line = f"{marker}{index + 1:02d} {title:<19} {count:>6}\n"
             style = "reverse" if self.active_pane == "categories" and index == self.category_index else ""
@@ -492,13 +512,14 @@ class RutrackerApp:
         if ascii_art and not full:
             ascii_art = "\n".join(ascii_art.splitlines()[:10])
         parts = [
-            f"link: {row['url']}",
-            f"forum: {row['forum_title'] or '-'}",
-            f"category: {row['forum_category'] or '-'}",
-            f"seeds: {row['seeders'] or 0}  leech: {row['leechers'] or 0}",
-            f"size: {row['size_text'] or '-'}",
-            f"date: {date or '-'}",
-            f"pinned: {'yes' if row['is_sticky'] else 'no'}",
+            row["url"],
+            (
+                f"🌱 {row['seeders'] or 0} | "
+                f"🪱 {row['leechers'] or 0} | "
+                f"📦 {row['size_text'] or '-'} | "
+                f"📅 {date or '-'} | "
+                f"📌 {'yes' if row['is_sticky'] else 'no'}"
+            ),
             "",
         ]
         if ascii_art:
@@ -525,6 +546,9 @@ class RutrackerApp:
         if not self.rows:
             return None
         return self.rows[self.selected_index]
+
+    def _category_emoji(self, category: str | None) -> str:
+        return CATEGORY_EMOJI.get(category or "", "🧲")
 
     def _update_stats(self) -> None:
         if not self.storage:
