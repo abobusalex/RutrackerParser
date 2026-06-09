@@ -7,6 +7,8 @@ class ParserTest(unittest.TestCase):
     def test_parse_size(self):
         self.assertEqual(parse_size("1.5 GB")[1], 1610612736)
         self.assertEqual(parse_size("700 МБ")[1], 734003200)
+        self.assertEqual(parse_size("8 b")[1], 8)
+        self.assertEqual(parse_size("2025 Бразилия"), (None, None))
 
     def test_parse_forums(self):
         html = '<tr><td>Книги и журналы</td><td><a href="viewforum.php?f=10">Аудиокниги</a></td></tr>'

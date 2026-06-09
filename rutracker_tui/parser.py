@@ -24,7 +24,7 @@ CATEGORY_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
 
 
 SIZE_RE = re.compile(
-    r"(?P<num>\d+(?:[.,]\d+)?)\s*(?P<unit>Б|B|KB|КБ|KiB|MB|МБ|MiB|GB|ГБ|GiB|TB|ТБ|TiB)",
+    r"(?P<num>\d+(?:[.,]\d+)?)\s*(?P<unit>KiB|MiB|GiB|TiB|KB|КБ|MB|МБ|GB|ГБ|TB|ТБ|Б|B)(?![A-Za-zА-Яа-я])",
     re.IGNORECASE,
 )
 INT_RE = re.compile(r"\d+")
